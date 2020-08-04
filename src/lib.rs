@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+// TODO: clean up all possible truncations and enable this
+//#![warn(clippy::cast_possible_truncation)]
+
 // For legacy code. TODO: stop suppressing these lints
 #![allow(clippy::single_match)]
 #![allow(clippy::while_let_loop)]
