@@ -1,4 +1,4 @@
-use std::{str, mem};
+use std::{str, mem, convert::TryInto};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ByteOrder {
@@ -8,21 +8,6 @@ pub enum ByteOrder {
 
 pub trait RawNumber: Sized {
     fn parse(s: &mut Stream) -> Self;
-}
-
-macro_rules! cast_number {
-    ($num:ty, $data:expr) => {{
-        assert_eq!($data.len(), std::mem::size_of::<$num>());
-        let mut num: $num = 0;
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                $data.as_ptr(),
-                &mut num as *mut $num as *mut u8,
-                std::mem::size_of::<$num>(),
-            );
-        }
-        num
-    }};
 }
 
 impl RawNumber for u8 {
@@ -44,7 +29,7 @@ impl RawNumber for u16 {
     fn parse(s: &mut Stream) -> Self {
         let start = s.offset;
         let end = s.offset + mem::size_of::<Self>();
-        let num = cast_number!(Self, s.data[start..end]);
+        let num = u16::from_ne_bytes(s.data[start..end].try_into().unwrap());
         match s.byte_order {
             ByteOrder::LittleEndian => num,
             ByteOrder::BigEndian => num.to_be(),
@@ -64,7 +49,7 @@ impl RawNumber for u32 {
     fn parse(s: &mut Stream) -> Self {
         let start = s.offset;
         let end = s.offset + mem::size_of::<Self>();
-        let num = cast_number!(Self, s.data[start..end]);
+        let num = u32::from_ne_bytes(s.data[start..end].try_into().unwrap());
         match s.byte_order {
             ByteOrder::LittleEndian => num,
             ByteOrder::BigEndian => num.to_be(),
@@ -77,7 +62,7 @@ impl RawNumber for u64 {
     fn parse(s: &mut Stream) -> Self {
         let start = s.offset;
         let end = s.offset + mem::size_of::<Self>();
-        let num = cast_number!(Self, s.data[start..end]);
+        let num = u64::from_ne_bytes(s.data[start..end].try_into().unwrap());
         match s.byte_order {
             ByteOrder::LittleEndian => num,
             ByteOrder::BigEndian => num.to_be(),
