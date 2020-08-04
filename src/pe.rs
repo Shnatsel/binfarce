@@ -1,6 +1,7 @@
 // See https://github.com/m4b/goblin/blob/master/src/pe/symbol.rs for details.
 
-use crate::SymbolData;
+use crate::ByteOrder;
+use crate::demangle::SymbolData;
 use crate::parser::*;
 
 const PE_POINTER_OFFSET: usize = 0x3c;

@@ -1,4 +1,5 @@
-use crate::SymbolData;
+use crate::ByteOrder;
+use crate::demangle::SymbolData;
 use crate::parser::*;
 
 const LC_SYMTAB: u32 = 0x2;

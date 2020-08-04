@@ -1,5 +1,6 @@
 use std::str;
 
+use crate::ByteOrder;
 use crate::parser::*;
 use crate::demangle::SymbolName;
 

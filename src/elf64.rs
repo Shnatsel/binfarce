@@ -1,6 +1,7 @@
 use std::ops::Range;
 
-use crate::SymbolData;
+use crate::ByteOrder;
+use crate::demangle::SymbolData;
 use crate::parser::*;
 
 mod elf {

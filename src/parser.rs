@@ -1,10 +1,5 @@
 use std::{str, mem, convert::TryInto};
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum ByteOrder {
-    LittleEndian,
-    BigEndian,
-}
+use crate::ByteOrder;
 
 pub trait RawNumber: Sized {
     fn parse(s: &mut Stream) -> Self;

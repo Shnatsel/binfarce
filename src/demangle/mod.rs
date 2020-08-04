@@ -19,6 +19,12 @@ pub enum Kind {
     V0,
 }
 
+pub struct SymbolData {
+    pub name: SymbolName,
+    pub address: u64,
+    pub size: u64,
+}
+
 pub struct SymbolName {
     pub complete: String,
     pub trimmed: String,
