@@ -1,10 +1,8 @@
 [package]
-name = "cargo-bloat"
+name = "kuduk"
 version = "0.9.3"
-authors = ["Evgeniy Reizner <razrfalcon@gmail.com>"]
-description = "Find out what takes most of the space in your executable."
-categories = ["development-tools::cargo-plugins"]
-repository = "https://github.com/RazrFalcon/cargo-bloat"
+authors = ["Evgeniy Reizner <razrfalcon@gmail.com>", "Sergey \"Shnatsel\" Davidoff <shnatsel@gmail.com>"]
+description = "Extremely minimal parser for ELF, Mach-O, PE and ar."
 readme = "README.md"
 license = "MIT"
 edition = "2018"
