@@ -80,7 +80,7 @@ enum DemangleStyle<'a> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use rustc_demangle::demangle;
 ///
 /// assert_eq!(demangle("_ZN4testE").to_string(), "test");
