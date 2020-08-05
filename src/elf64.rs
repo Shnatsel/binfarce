@@ -103,7 +103,7 @@ fn parse_elf_sections(
 }
 
 impl Section {
-    fn range(&self) -> Range<usize> {
+    pub fn range(&self) -> Range<usize> {
         self.offset as usize .. (self.offset as usize + self.size as usize)
     }
 }
