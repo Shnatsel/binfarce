@@ -24,3 +24,9 @@ name = "elf64"
 path = "fuzz_targets/elf64.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "elf32"
+path = "fuzz_targets/elf32.rs"
+test = false
+doc = false
