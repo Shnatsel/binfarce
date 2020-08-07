@@ -142,13 +142,13 @@ impl<'a> Elf64<'a> {
     }
 
     pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
-        match self.parse_section_header() {
+        match self.extract_symbols() {
             Some(v) => v,
             None => (Vec::new(), 0),
         }
     }
 
-    fn parse_section_header(&self) -> Option<(Vec<SymbolData>, u64)> {
+    fn extract_symbols(&self) -> Option<(Vec<SymbolData>, u64)> {
         let data = self.data;
         let sections = &self.sections;
 
