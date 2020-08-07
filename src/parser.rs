@@ -138,8 +138,8 @@ impl<'a> Stream<'a> {
 }
 
 pub fn parse_null_string(data: &[u8], start: usize) -> Option<&str> {
-    match data[start..].iter().position(|c| *c == b'\0') {
-        Some(i) if i != 0 => str::from_utf8(&data[start..start+i]).ok(),
+    match data.get(start..)?.iter().position(|c| *c == b'\0') {
+        Some(i) if i != 0 => str::from_utf8(&data[start..start.checked_add(i)?]).ok(),
         _ => None,
     }
 }
