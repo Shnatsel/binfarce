@@ -1,8 +1,9 @@
-use std::ops::Range;
+use std::{convert::TryInto, ops::Range, mem::size_of};
 
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::ParseError;
 
 mod elf {
     pub type Address = u32;
@@ -16,31 +17,52 @@ mod section_type {
     pub const STRING_TABLE: super::elf::Word = 3;
 }
 
-pub fn parse(data: &[u8], byte_order: ByteOrder) -> (Vec<SymbolData>, u64) {
-    let mut s = Stream::new(&data[16..], byte_order);
-    s.skip::<elf::Half>(); // type
-    s.skip::<elf::Half>(); // machine
-    s.skip::<elf::Word>(); // version
-    s.skip::<elf::Address>(); // entry
-    s.skip::<elf::Offset>(); // phoff
-    let section_offset = s.read::<elf::Offset>() as usize; // shoff
-    s.skip::<elf::Word>(); // flags
-    s.skip::<elf::Half>(); // ehsize
-    s.skip::<elf::Half>(); // phentsize
-    s.skip::<elf::Half>(); // phnum
-    s.skip::<elf::Half>(); // shentsize
-    let sections_count: elf::Half = s.read(); // shnum
-    let section_name_strings_index: elf::Half = s.read(); // shstrndx
+const RAW_ELF_HEADER_SIZE: usize = size_of::<Elf64Header>();
+const RAW_SECTION_HEADER_SIZE: usize = size_of::<elf::Word>() * 8 +
+    size_of::<elf::Address>() + size_of::<elf::Offset>();
 
-    let s = Stream::new(&data[section_offset..], byte_order);
-    match parse_section_header(data, s, sections_count, section_name_strings_index) {
-        Some(v) => v,
-        None => (Vec::new(), 0),
-    }
+#[derive(Debug, Clone, Copy)]
+pub struct Elf64Header {
+    pub elf_type: elf::Half,
+    pub machine: elf::Half,
+    pub version: elf::Word,
+    pub entry: elf::Address,
+    pub phoff: elf::Offset,
+    pub shoff: elf::Offset,
+    pub flags: elf::Word,
+    pub ehsize: elf::Half,
+    pub phentsize: elf::Half,
+    pub phnum: elf::Half,
+    pub shentsize: elf::Half,
+    pub shnum: elf::Half,
+    pub shstrndx: elf::Half,
 }
 
-#[derive(Clone, Copy)]
-struct Section {
+fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, ParseError> {
+    let mut s = Stream::new(&data.get(16..).ok_or(ParseError{})?, byte_order);
+    if s.remaining() >= RAW_ELF_HEADER_SIZE {
+        Ok(Elf64Header {
+            elf_type: s.read(),
+            machine: s.read(),
+            version: s.read(),
+            entry: s.read(),
+            phoff: s.read(),
+            shoff: s.read(),
+            flags: s.read(),
+            ehsize: s.read(),
+            phentsize: s.read(),
+            phnum: s.read(),
+            shentsize: s.read(),
+            shnum: s.read(),
+            shstrndx: s.read(),
+        })
+    } else {
+        Err(ParseError {})
+    }
+
+}
+#[derive(Debug, Clone, Copy)]
+pub struct Section {
     index: u16,
     name: u32,
     kind: u32,
@@ -50,22 +72,19 @@ struct Section {
     entries: usize,
 }
 
-impl Section {
-    fn range(&self) -> Range<usize> {
-        self.offset as usize .. (self.offset as usize + self.size as usize)
-    }
-}
-
-fn parse_section_header(
+fn parse_elf_sections(
     data: &[u8],
-    mut s: Stream,
-    count: u16,
-    section_name_strings_index: u16,
-) -> Option<(Vec<SymbolData>, u64)> {
-    let mut sections = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        let name: elf::Word = s.read();
-        let kind: elf::Word = s.read();
+    byte_order: ByteOrder,
+    header: &Elf64Header
+) -> Result<Vec<Section>, ParseError> {
+    let count: usize = header.shnum.into();
+    let section_offset: usize = header.shoff.try_into()?;
+    let mut s = Stream::new(&data.get(section_offset..).ok_or(ParseError{})?, byte_order);
+    // with_capacity() below will not exhaust memory because `count` is converted from a `u16`
+    let mut sections = Vec::with_capacity(count);
+    while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
+        let name  = s.read::<elf::Word>();
+        let kind  = s.read::<elf::Word>();
         s.skip::<elf::Word>(); // flags
         s.skip::<elf::Address>(); // addr
         let offset = s.read::<elf::Offset>();
@@ -75,6 +94,7 @@ fn parse_section_header(
         s.skip::<elf::Word>(); // addralign
         let entry_size = s.read::<elf::Word>();
 
+        // TODO: harden?
         let entries = if entry_size == 0 { 0 } else { size / entry_size } as usize;
 
         sections.push(Section {
@@ -87,23 +107,68 @@ fn parse_section_header(
             entries,
         });
     }
+    Ok(sections)
+}
 
-    let section_name_strings = &data[sections[section_name_strings_index as usize].range()];
-    let text_section = sections.iter().find(|s| {
-        parse_null_string(section_name_strings, s.name as usize) == Some(".text")
-    }).cloned()?;
+impl Section {
+    pub fn range(&self) -> Option<Range<usize>> {
+        let start: usize = self.offset.try_into().ok()?;
+        let end: usize = start.checked_add(self.size.try_into().ok()?)?;
+        Some(start..end)
+    }
+}
 
-    let symbols_section = sections.iter().find(|v| v.kind == section_type::SYMBOL_TABLE)?;
+pub struct Elf64<'a> {
+    data: &'a [u8],
+    byte_order: ByteOrder,
+    header: Elf64Header,
+    sections: Vec<Section>,
+}
 
-    let linked_section = sections.get(symbols_section.link)?;
-    if linked_section.kind != section_type::STRING_TABLE {
-        return None;
+pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf64, ParseError> {
+    let header = parse_elf_header(data, byte_order)?;
+    let sections = parse_elf_sections(data, byte_order, &header)?;
+    Ok(Elf64 { data, byte_order, header, sections })
+}
+
+impl<'a> Elf64<'a> {
+    pub fn header(&self) -> Elf64Header {
+        self.header.clone()
     }
 
-    let strings = &data[linked_section.range()];
-    let s = Stream::new(&data[symbols_section.range()], s.byte_order());
-    let symbols = parse_symbols(s, symbols_section.entries, strings, text_section);
-    Some((symbols, text_section.size as u64))
+    pub fn sections(&self) -> Vec<Section> {
+        self.sections.clone()
+    }
+
+    pub fn section_with_name(&self, name: &str) -> Option<Section> {
+        let sections = &self.sections;
+        let section_names_data_range = sections.get(usize::from(self.header.shstrndx))?.range()?;
+        let section_name_strings = &self.data.get(section_names_data_range)?;
+        Some(sections.iter().find(|s| {
+            parse_null_string(section_name_strings, s.name as usize) == Some(name)
+        }).cloned()?)
+    }
+
+    pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
+        self.extract_symbols().unwrap_or((Vec::new(), 0))
+    }
+
+    fn extract_symbols(&self) -> Option<(Vec<SymbolData>, u64)> {
+        let data = self.data;
+        let sections = &self.sections;
+
+        let text_section = self.section_with_name(".text")?;
+        let symbols_section = sections.iter().find(|v| v.kind == section_type::SYMBOL_TABLE)?;
+        let linked_section = sections.get(symbols_section.link)?;
+        if linked_section.kind != section_type::STRING_TABLE {
+            return None;
+        }
+    
+        let strings = &data[linked_section.range()?];
+        let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
+        let symbols = parse_symbols(s, symbols_section.entries, strings, text_section);
+        Some((symbols, text_section.size.into()))
+    }
 }
 
 fn parse_symbols(
