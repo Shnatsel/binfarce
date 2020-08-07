@@ -19,6 +19,9 @@ pub mod elf64;
 pub mod macho;
 pub mod pe;
 mod parser;
+mod error;
+
+pub use crate::error::ParseError;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ByteOrder {

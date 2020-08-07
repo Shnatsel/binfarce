@@ -1,11 +1,9 @@
-#![warn(clippy::cast_possible_truncation)]
-#![warn(clippy::cast_lossless)]
-
 use std::{convert::TryInto, ops::Range, mem::size_of};
 
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::ParseError;
 
 mod elf {
     pub type Address = u64;
@@ -41,10 +39,10 @@ pub struct Elf64Header {
     pub shstrndx: elf::Half,
 }
 
-fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Option<Elf64Header> {
-    let mut s = Stream::new(&data.get(16..)?, byte_order);
+fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, ParseError> {
+    let mut s = Stream::new(&data.get(16..).ok_or(ParseError{})?, byte_order);
     if s.remaining() >= RAW_ELF_HEADER_SIZE {
-        Some(Elf64Header {
+        Ok(Elf64Header {
             elf_type: s.read(),
             machine: s.read(),
             version: s.read(),
@@ -60,7 +58,7 @@ fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Option<Elf64Header> {
             shstrndx: s.read(),
         })
     } else {
-        None
+        Err(ParseError {})
     }
 
 }
@@ -79,10 +77,10 @@ fn parse_elf_sections(
     data: &[u8],
     byte_order: ByteOrder,
     header: &Elf64Header
-) -> Option<Vec<Section>> {
+) -> Result<Vec<Section>, ParseError> {
     let count: usize = header.shnum.into();
-    let section_offset: usize = header.shoff.try_into().ok()?;
-    let mut s = Stream::new(&data.get(section_offset..)?, byte_order);
+    let section_offset: usize = header.shoff.try_into()?;
+    let mut s = Stream::new(&data.get(section_offset..).ok_or(ParseError{})?, byte_order);
     // with_capacity() below will not exhaust memory because `count` is converted from a `u16`
     let mut sections = Vec::with_capacity(count);
     while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
@@ -97,7 +95,7 @@ fn parse_elf_sections(
         s.skip::<elf::XWord>(); // addralign
         let entry_size = s.read::<elf::XWord>();
 
-        // TODO: harden
+        // TODO: harden?
         let entries = if entry_size == 0 { 0 } else { size / entry_size } as usize;
 
         sections.push(Section {
@@ -110,7 +108,7 @@ fn parse_elf_sections(
             entries,
         });
     }
-    Some(sections)
+    Ok(sections)
 }
 
 impl Section {
@@ -128,10 +126,10 @@ pub struct Elf64<'a> {
     sections: Vec<Section>,
 }
 
-pub fn parse(data: &[u8], byte_order: ByteOrder) -> Option<Elf64> {
+pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf64, ParseError> {
     let header = parse_elf_header(data, byte_order)?;
     let sections = parse_elf_sections(data, byte_order, &header)?;
-    Some(Elf64 { data, byte_order, header, sections })
+    Ok(Elf64 { data, byte_order, header, sections })
 }
 
 impl<'a> Elf64<'a> {
@@ -152,7 +150,11 @@ impl<'a> Elf64<'a> {
         }).cloned()?)
     }
 
-    pub fn symbols(&self) -> Option<(Vec<SymbolData>, u64)> {
+    pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
+        self.extract_symbols().unwrap_or((Vec::new(), 0))
+    }
+
+    fn extract_symbols(&self) -> Option<(Vec<SymbolData>, u64)> {
         let data = self.data;
         let sections = &self.sections;
 
