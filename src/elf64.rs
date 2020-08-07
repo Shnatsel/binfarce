@@ -1,4 +1,7 @@
-use std::{convert::TryInto, ops::Range};
+#![warn(clippy::cast_possible_truncation)]
+#![warn(clippy::cast_lossless)]
+
+use std::{convert::TryInto, ops::Range, mem::size_of};
 
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
@@ -16,6 +19,10 @@ mod section_type {
     pub const SYMBOL_TABLE: super::elf::Word = 2;
     pub const STRING_TABLE: super::elf::Word = 3;
 }
+
+const RAW_ELF_HEADER_SIZE: usize = size_of::<Elf64Header>();
+const RAW_SECTION_HEADER_SIZE: usize = size_of::<elf::Word>() * 4 +
+    size_of::<elf::XWord>() * 4 + size_of::<elf::Address>() + size_of::<elf::Offset>();
 
 #[derive(Debug, Clone, Copy)]
 pub struct Elf64Header {
@@ -36,7 +43,7 @@ pub struct Elf64Header {
 
 fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Option<Elf64Header> {
     let mut s = Stream::new(&data.get(16..)?, byte_order);
-    if s.remaining() >= std::mem::size_of::<Elf64Header>() {
+    if s.remaining() >= RAW_ELF_HEADER_SIZE {
         Some(Elf64Header {
             elf_type: s.read(),
             machine: s.read(),
@@ -72,15 +79,15 @@ fn parse_elf_sections(
     data: &[u8],
     byte_order: ByteOrder,
     header: &Elf64Header
-) -> Vec<Section> {
-    let count = header.shnum;
-    let section_offset = header.shoff as usize; // TODO: harden
-    let mut s = Stream::new(&data[section_offset..], byte_order);
-    let mut sections = Vec::with_capacity(usize::from(count));
-    for _ in 0..count {
-        // TODO: ensure there's enough data
-        let name: elf::Word = s.read();
-        let kind: elf::Word = s.read();
+) -> Option<Vec<Section>> {
+    let count: usize = header.shnum.into();
+    let section_offset: usize = header.shoff.try_into().ok()?;
+    let mut s = Stream::new(&data.get(section_offset..)?, byte_order);
+    // with_capacity() below will not exhaust memory because `count` is converted from a `u16`
+    let mut sections = Vec::with_capacity(count);
+    while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
+        let name  = s.read::<elf::Word>();
+        let kind  = s.read::<elf::Word>();
         s.skip::<elf::XWord>(); // flags
         s.skip::<elf::Address>(); // addr
         let offset = s.read::<elf::Offset>();
@@ -103,7 +110,7 @@ fn parse_elf_sections(
             entries,
         });
     }
-    sections
+    Some(sections)
 }
 
 impl Section {
@@ -123,7 +130,7 @@ pub struct Elf64<'a> {
 
 pub fn parse(data: &[u8], byte_order: ByteOrder) -> Option<Elf64> {
     let header = parse_elf_header(data, byte_order)?;
-    let sections = parse_elf_sections(data, byte_order, &header);
+    let sections = parse_elf_sections(data, byte_order, &header)?;
     Some(Elf64 { data, byte_order, header, sections })
 }
 
