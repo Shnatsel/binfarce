@@ -28,3 +28,43 @@ pub enum ByteOrder {
     LittleEndian,
     BigEndian,
 }
+
+pub enum Format {
+    Elf32 {byte_order: ByteOrder},
+    Elf64 {byte_order: ByteOrder},
+    Macho,
+    PE,
+    Unknown,
+}
+
+pub fn detect_format(data: &[u8]) -> Format {
+    if data.len() < 8 {return Format::Unknown};
+    let macho_signatures = [
+        b"\xCA\xFE\xBA\xBE", // multi-architecture macOS
+        b"\xFE\xED\xFA\xCE", // 32-bit macOS
+        b"\xFE\xED\xFA\xCF", // 64-bit macOS
+        b"\xCE\xFA\xED\xFE", // and now the same in reverse order
+        b"\xCF\xFA\xED\xFE", // because they could
+    ];
+    if data.starts_with(b"\x7FELF") {
+        let byte_order = match data[5] {
+            1 => ByteOrder::LittleEndian,
+            2 => ByteOrder::BigEndian,
+            _ => return Format::Unknown,
+        };
+        return match data[4] {
+            1 => Format::Elf32{byte_order},
+            2 => Format::Elf64{byte_order},
+            _ => Format::Unknown,
+        };
+    } else if data.starts_with(b"MZ") {
+        return Format::PE;
+    } else {
+        for signature in &macho_signatures {
+            if data.starts_with(*signature) {
+                return Format::Macho;
+            }
+        }
+    }
+    Format::Unknown
+}
