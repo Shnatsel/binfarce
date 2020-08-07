@@ -130,6 +130,11 @@ impl<'a> Stream<'a> {
         self.offset += len;
         &self.data[offset..(offset + len)]
     }
+
+    #[inline]
+    pub fn remaining(&self) -> usize {
+        self.data.len().checked_sub(self.offset).unwrap()
+    }
 }
 
 pub fn parse_null_string(data: &[u8], start: usize) -> Option<&str> {

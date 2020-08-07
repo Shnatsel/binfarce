@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{convert::TryInto, ops::Range};
 
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
@@ -34,24 +34,28 @@ pub struct Elf64Header {
     pub shstrndx: elf::Half,
 }
 
-fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Elf64Header {
-    // TODO: ensure there's enough data
-    let mut s = Stream::new(&data[16..], byte_order);
-    Elf64Header {
-        elf_type: s.read(),
-        machine: s.read(),
-        version: s.read(),
-        entry: s.read(),
-        phoff: s.read(),
-        shoff: s.read(),
-        flags: s.read(),
-        ehsize: s.read(),
-        phentsize: s.read(),
-        phnum: s.read(),
-        shentsize: s.read(),
-        shnum: s.read(),
-        shstrndx: s.read(),
+fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Option<Elf64Header> {
+    let mut s = Stream::new(&data.get(16..)?, byte_order);
+    if s.remaining() >= std::mem::size_of::<Elf64Header>() {
+        Some(Elf64Header {
+            elf_type: s.read(),
+            machine: s.read(),
+            version: s.read(),
+            entry: s.read(),
+            phoff: s.read(),
+            shoff: s.read(),
+            flags: s.read(),
+            ehsize: s.read(),
+            phentsize: s.read(),
+            phnum: s.read(),
+            shentsize: s.read(),
+            shnum: s.read(),
+            shstrndx: s.read(),
+        })
+    } else {
+        None
     }
+
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Section {
@@ -103,8 +107,10 @@ fn parse_elf_sections(
 }
 
 impl Section {
-    pub fn range(&self) -> Range<usize> {
-        self.offset as usize .. (self.offset as usize + self.size as usize)
+    pub fn range(&self) -> Option<Range<usize>> {
+        let start: usize = self.offset.try_into().ok()?;
+        let end: usize = start.checked_add(self.size.try_into().ok()?)?;
+        Some(start..end)
     }
 }
 
@@ -115,10 +121,10 @@ pub struct Elf64<'a> {
     sections: Vec<Section>,
 }
 
-pub fn parse(data: &[u8], byte_order: ByteOrder) -> Elf64 {
-    let header = parse_elf_header(data, byte_order);
+pub fn parse(data: &[u8], byte_order: ByteOrder) -> Option<Elf64> {
+    let header = parse_elf_header(data, byte_order)?;
     let sections = parse_elf_sections(data, byte_order, &header);
-    Elf64 { data, byte_order, header, sections }
+    Some(Elf64 { data, byte_order, header, sections })
 }
 
 impl<'a> Elf64<'a> {
@@ -131,24 +137,15 @@ impl<'a> Elf64<'a> {
     }
 
     pub fn section_with_name(&self, name: &str) -> Option<Section> {
-        let data = self.data;
-        let section_name_strings_index = self.header.shstrndx; // TODO: validate
         let sections = &self.sections;
-    
-        let section_name_strings = &data[sections[section_name_strings_index as usize].range()];
+        let section_names_data_range = sections.get(usize::from(self.header.shstrndx))?.range()?;
+        let section_name_strings = &self.data.get(section_names_data_range)?;
         Some(sections.iter().find(|s| {
             parse_null_string(section_name_strings, s.name as usize) == Some(name)
         }).cloned()?)
     }
 
-    pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
-        match self.extract_symbols() {
-            Some(v) => v,
-            None => (Vec::new(), 0),
-        }
-    }
-
-    fn extract_symbols(&self) -> Option<(Vec<SymbolData>, u64)> {
+    pub fn symbols(&self) -> Option<(Vec<SymbolData>, u64)> {
         let data = self.data;
         let sections = &self.sections;
 
@@ -159,8 +156,8 @@ impl<'a> Elf64<'a> {
             return None;
         }
     
-        let strings = &data[linked_section.range()];
-        let s = Stream::new(&data[symbols_section.range()], self.byte_order);
+        let strings = &data[linked_section.range()?];
+        let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
         let symbols = parse_symbols(s, symbols_section.entries, strings, text_section);
         Some((symbols, text_section.size))
     }
