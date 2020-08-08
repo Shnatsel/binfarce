@@ -111,10 +111,10 @@ fn parse_elf_sections(
 }
 
 impl Section {
-    pub fn range(&self) -> Option<Range<usize>> {
-        let start: usize = self.offset.try_into().ok()?;
-        let end: usize = start.checked_add(self.size.try_into().ok()?)?;
-        Some(start..end)
+    pub fn range(&self) -> Result<Range<usize>, ParseError> {
+        let start: usize = self.offset.try_into()?;
+        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError{})?;
+        Ok(start..end)
     }
 }
 
@@ -142,7 +142,7 @@ impl<'a> Elf64<'a> {
 
     pub fn section_with_name(&self, name: &str) -> Option<Section> {
         let sections = &self.sections;
-        let section_names_data_range = sections.get(usize::from(self.header.shstrndx))?.range()?;
+        let section_names_data_range = sections.get(usize::from(self.header.shstrndx))?.range().ok()?;
         let section_name_strings = &self.data.get(section_names_data_range)?;
         Some(sections.iter().find(|s| {
             parse_null_string(section_name_strings, s.name as usize) == Some(name)
@@ -164,8 +164,8 @@ impl<'a> Elf64<'a> {
             return None;
         }
     
-        let strings = &data[linked_section.range()?];
-        let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
+        let strings = &data[linked_section.range().ok()?];
+        let s = Stream::new(&data[symbols_section.range().ok()?], self.byte_order);
         let symbols = parse_symbols(s, symbols_section.entries, strings, text_section);
         Some((symbols, text_section.size.into()))
     }
