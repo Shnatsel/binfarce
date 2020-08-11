@@ -1,6 +1,6 @@
 [package]
 name = "binfarce"
-version = "0.9.3"
+version = "0.0.1"
 authors = ["Evgeniy Reizner <razrfalcon@gmail.com>", "Sergey \"Shnatsel\" Davidoff <shnatsel@gmail.com>"]
 description = "Extremely minimal parser for ELF, Mach-O, PE and ar."
 readme = "README.md"
