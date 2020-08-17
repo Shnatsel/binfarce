@@ -153,7 +153,7 @@ impl<'a> Stream<'a> {
 
     #[inline]
     pub fn remaining(&self) -> usize {
-        self.data.len().checked_sub(self.offset).unwrap()
+        self.data.len().saturating_sub(self.offset)
     }
 }
 
