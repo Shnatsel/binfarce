@@ -1,5 +1,6 @@
 use std::{str, mem, convert::TryInto};
 use crate::ByteOrder;
+use std::io::{Error, ErrorKind::UnexpectedEof};
 
 pub trait RawNumber: Sized {
     fn parse(s: &mut Stream) -> Self;
@@ -84,6 +85,7 @@ impl<'a> Stream<'a> {
 
     #[inline]
     pub fn new_at(data: &'a [u8], offset: usize, byte_order: ByteOrder) -> Self {
+        // TODO: harden
         Stream {
             data,
             offset,
@@ -98,7 +100,7 @@ impl<'a> Stream<'a> {
 
     #[inline]
     pub fn at_end(&self) -> bool {
-        self.offset == self.data.len()
+        self.offset >= self.data.len()
     }
 
     #[inline]
@@ -107,13 +109,17 @@ impl<'a> Stream<'a> {
     }
 
     #[inline]
-    pub fn skip<T: RawNumber>(&mut self) {
-        self.offset += mem::size_of::<T>();
+    pub fn skip<T: RawNumber>(&mut self) -> Result<(), Error> {
+        self.skip_len(mem::size_of::<T>())
     }
 
     #[inline]
-    pub fn skip_len(&mut self, len: usize) {
-        self.offset += len;
+    pub fn skip_len(&mut self, len: usize) -> Result<(), Error> {
+        let new_offset = self.offset.checked_add(len);
+        match new_offset {
+            Some(valid_offset) => {self.offset = valid_offset; Ok(())}
+            None => {Err(Error::new(UnexpectedEof, "Unexpected end of file"))}
+        }
     }
 
     #[inline]
