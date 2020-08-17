@@ -134,9 +134,8 @@ impl<'a> Stream<'a> {
 
     #[inline]
     pub fn read<T: RawNumber>(&mut self) -> T {
-        let start = self.offset;
         let v = T::parse(self);
-        self.offset = start + mem::size_of::<T>();
+        self.offset += mem::size_of::<T>();
         v.unwrap() // TODO: harden
         // I'm leaving this as-is FOR NOW because I'm not done refactoring decoders yet,
         // and putting unwrap() on every single invocation only to change it later
