@@ -1,6 +1,7 @@
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::ParseError;
 
 const LC_SYMTAB: u32 = 0x2;
 const LC_SEGMENT_64: u32 = 0x19;
@@ -15,6 +16,35 @@ struct Cmd {
 struct Section {
     address: u64,
     size: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MachoHeader {
+    cputype: u32,
+    cpusubtype: u32,
+    /// type of file - exec, dylib, ...
+    filetype: u32,
+    /// number of load commands
+    ncmds: u32,
+    /// size of load command region
+    sizeofcmds: u32,
+    flags: u32,
+}
+
+fn parse_macho_header(data: &[u8], byte_order: ByteOrder) -> Result<MachoHeader, ParseError> {
+    // TODO: harden
+    let mut s = Stream::new(&data, byte_order);
+    s.skip::<u32>(); // magic
+    let header = MachoHeader {
+        cputype: s.read(),
+        cpusubtype: s.read(),
+        filetype: s.read(),
+        ncmds: s.read(),
+        sizeofcmds: s.read(),
+        flags: s.read(),
+    };
+    s.skip::<u32>(); // reserved
+    Ok(header)
 }
 
 pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
