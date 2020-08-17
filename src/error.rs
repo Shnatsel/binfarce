@@ -21,3 +21,9 @@ impl From<std::num::TryFromIntError> for ParseError {
         ParseError {}
     }
 }
+
+impl From<crate::parser::UnexpectedEof> for ParseError {
+    fn from(_: crate::parser::UnexpectedEof) -> Self {
+        ParseError {}
+    }
+}
