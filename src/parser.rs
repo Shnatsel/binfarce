@@ -2,11 +2,11 @@ use std::{str, mem, convert::TryInto};
 use crate::ByteOrder;
 
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct UnexpectedEof {}
+pub struct UnexpectedEof {}
 
 impl std::fmt::Display for UnexpectedEof {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!("Unexpected end of file")
+        write!(f, "Unexpected end of file")
     }
 }
 
@@ -137,7 +137,11 @@ impl<'a> Stream<'a> {
         let start = self.offset;
         let v = T::parse(self);
         self.offset = start + mem::size_of::<T>();
-        v
+        v.unwrap() // TODO: harden
+        // I'm leaving this as-is FOR NOW because I'm not done refactoring decoders yet,
+        // and putting unwrap() on every single invocation only to change it later
+        // is entirely useless. I'll revisit this once I've converted all 3 decoders
+        // to return errors instead of panicking.
     }
 
     #[inline]
