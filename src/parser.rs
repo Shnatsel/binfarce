@@ -146,7 +146,7 @@ impl<'a> Stream<'a> {
     #[inline]
     pub fn read_bytes(&mut self, len: usize) -> &'a [u8] {
         let offset = self.offset;
-        self.offset += len;
+        self.offset += len; //TODO: harden
         &self.data[offset..(offset + len)]
     }
 
