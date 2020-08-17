@@ -1,6 +1,16 @@
 use std::{str, mem, convert::TryInto};
 use crate::ByteOrder;
-use std::io::{Error, ErrorKind::UnexpectedEof};
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct UnexpectedEof {}
+
+impl std::fmt::Display for UnexpectedEof {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!("Unexpected end of file")
+    }
+}
+
+impl std::error::Error for UnexpectedEof {}
 
 pub trait RawNumber: Sized {
     fn parse(s: &mut Stream) -> Option<Self>;
@@ -109,16 +119,16 @@ impl<'a> Stream<'a> {
     }
 
     #[inline]
-    pub fn skip<T: RawNumber>(&mut self) -> Result<(), Error> {
+    pub fn skip<T: RawNumber>(&mut self) -> Result<(), UnexpectedEof> {
         self.skip_len(mem::size_of::<T>())
     }
 
     #[inline]
-    pub fn skip_len(&mut self, len: usize) -> Result<(), Error> {
+    pub fn skip_len(&mut self, len: usize) -> Result<(), UnexpectedEof> {
         let new_offset = self.offset.checked_add(len);
         match new_offset {
             Some(valid_offset) => {self.offset = valid_offset; Ok(())}
-            None => {Err(Error::new(UnexpectedEof, "Unexpected end of file"))}
+            None => {Err(UnexpectedEof{})}
         }
     }
 
