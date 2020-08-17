@@ -3,65 +3,65 @@ use crate::ByteOrder;
 use std::io::{Error, ErrorKind::UnexpectedEof};
 
 pub trait RawNumber: Sized {
-    fn parse(s: &mut Stream) -> Self;
+    fn parse(s: &mut Stream) -> Option<Self>;
 }
 
 impl RawNumber for u8 {
     #[inline]
-    fn parse(s: &mut Stream) -> Self {
-        s.data[s.offset]
+    fn parse(s: &mut Stream) -> Option<Self> {
+        s.data.get(s.offset).copied()
     }
 }
 
 impl RawNumber for i8 {
     #[inline]
-    fn parse(s: &mut Stream) -> Self {
-        s.data[s.offset] as i8
+    fn parse(s: &mut Stream) -> Option<Self> {
+        s.data.get(s.offset).map(|x| *x as i8)
     }
 }
 
 impl RawNumber for u16 {
     #[inline]
-    fn parse(s: &mut Stream) -> Self {
+    fn parse(s: &mut Stream) -> Option<Self> {
         let start = s.offset;
-        let end = s.offset + mem::size_of::<Self>();
-        let num = u16::from_ne_bytes(s.data[start..end].try_into().unwrap());
+        let end = s.offset.checked_add(mem::size_of::<Self>())?;
+        let num = u16::from_ne_bytes(s.data.get(start..end)?.try_into().unwrap());
         match s.byte_order {
-            ByteOrder::LittleEndian => num,
-            ByteOrder::BigEndian => num.to_be(),
+            ByteOrder::LittleEndian => Some(num),
+            ByteOrder::BigEndian => Some(num.to_be()),
         }
     }
 }
 
 impl RawNumber for i16 {
     #[inline]
-    fn parse(s: &mut Stream) -> Self {
-        s.read::<u16>() as i16
+    fn parse(s: &mut Stream) -> Option<Self> {
+        u16::parse(s).map(|x| x as i16)
     }
 }
 
 impl RawNumber for u32 {
     #[inline]
-    fn parse(s: &mut Stream) -> Self {
+    fn parse(s: &mut Stream) -> Option<Self> {
         let start = s.offset;
-        let end = s.offset + mem::size_of::<Self>();
-        let num = u32::from_ne_bytes(s.data[start..end].try_into().unwrap());
+        let end = s.offset.checked_add(mem::size_of::<Self>())?;
+        let num = u32::from_ne_bytes(s.data.get(start..end)?.try_into().unwrap());
         match s.byte_order {
-            ByteOrder::LittleEndian => num,
-            ByteOrder::BigEndian => num.to_be(),
+            ByteOrder::LittleEndian => Some(num),
+            ByteOrder::BigEndian => Some(num.to_be()),
         }
     }
 }
 
 impl RawNumber for u64 {
     #[inline]
-    fn parse(s: &mut Stream) -> Self {
+    fn parse(s: &mut Stream) -> Option<Self> {
         let start = s.offset;
-        let end = s.offset + mem::size_of::<Self>();
-        let num = u64::from_ne_bytes(s.data[start..end].try_into().unwrap());
+        let end = s.offset.checked_add(mem::size_of::<Self>())?;
+        let num = u64::from_ne_bytes(s.data.get(start..end)?.try_into().unwrap());
         match s.byte_order {
-            ByteOrder::LittleEndian => num,
-            ByteOrder::BigEndian => num.to_be(),
+            ByteOrder::LittleEndian => Some(num),
+            ByteOrder::BigEndian => Some(num.to_be()),
         }
     }
 }
