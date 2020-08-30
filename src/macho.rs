@@ -2,6 +2,7 @@ use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
 use crate::ParseError;
+
 use std::cmp::min;
 
 const LC_SYMTAB: u32 = 0x2;
@@ -14,7 +15,9 @@ struct Cmd {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Section {
+struct Section <'a> {
+    segment_name: &'a str,
+    section_name: &'a str,
     address: u64,
     size: u64,
 }
@@ -33,9 +36,11 @@ pub struct MachoHeader {
 }
 
 #[derive(Debug, Clone)]
-pub struct Macho {
+pub struct Macho <'a> {
+    data: &'a [u8],
     header: MachoHeader,
     commands: Vec<Cmd>,
+    sections: Vec<Section<'a>>
 }
 
 fn parse_macho_header(data: &[u8], byte_order: ByteOrder) -> Result<MachoHeader, ParseError> {
@@ -54,7 +59,7 @@ fn parse_macho_header(data: &[u8], byte_order: ByteOrder) -> Result<MachoHeader,
     Ok(header)
 }
 
-pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
+pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let header = parse_macho_header(data, ByteOrder::LittleEndian).unwrap(); //TODO: harden
     let number_of_commands = header.ncmds;
 
@@ -76,7 +81,7 @@ pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
         s.skip_len(cmd_size as usize - 8);
     }
 
-    let mut text_section = Section { address: 0, size: 0 };
+    let mut sections: Vec<Section> = Vec::new();
     for cmd in &commands {
         if cmd.kind == LC_SEGMENT_64 {
             let mut s = Stream::new_at(data, cmd.offset, ByteOrder::LittleEndian);
@@ -90,7 +95,7 @@ pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
             let sections_count: u32 = s.read();
             s.skip::<u32>(); // flags
 
-            for i in 0..sections_count {
+            for _ in 0..sections_count {
                 let section_name = parse_null_string(s.read_bytes(16), 0);
                 let segment_name = parse_null_string(s.read_bytes(16), 0);
                 let address: u64 = s.read();
@@ -102,37 +107,56 @@ pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
                 s.skip::<u32>(); // flags
                 s.skip_len(12); // padding
 
-                if segment_name == Some("__TEXT") && section_name == Some("__text") {
-                    text_section = Section { address, size };
-                    assert_eq!(i, 0, "the __TEXT section must be first");
+                if let (Some(segment), Some(section)) = (segment_name, section_name) {
+                    sections.push(Section {
+                        segment_name: segment,
+                        section_name: section,
+                        address: address,
+                        size: size,
+                    });
                 }
             }
         }
     }
+    Ok(Macho{
+        data: data,
+        header: header,
+        commands: commands,
+        sections: sections,
+    })
+}
 
-    assert_ne!(text_section.size, 0);
-
-    if let Some(cmd) = commands.iter().find(|v| v.kind == LC_SYMTAB) {
-        let mut s = Stream::new(&data[cmd.offset..], ByteOrder::LittleEndian);
-        let symbols_offset: u32 = s.read();
-        let number_of_symbols: u32 = s.read();
-        let strings_offset: u32 = s.read();
-        let strings_size: u32 = s.read();
-
-        let strings = {
-            let start = strings_offset as usize;
-            let end = start + strings_size as usize;
-            &data[start..end]
-        };
-
-        let symbols_data = &data[symbols_offset as usize..];
-        return (
-            parse_symbols(symbols_data, number_of_symbols, strings, text_section),
-            text_section.size,
-        );
+impl Macho<'_> {
+    pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
+        let text_section_index = self.sections.iter().position(|x| {
+            x.segment_name == "__TEXT" && x.section_name == "__text"
+        });
+        assert!(text_section_index == Some(0), "the __TEXT section must be first");
+        let text_section = self.sections[0];
+        assert_ne!(text_section.size, 0);
+    
+        if let Some(cmd) = self.commands.iter().find(|v| v.kind == LC_SYMTAB) {
+            let mut s = Stream::new(&self.data[cmd.offset..], ByteOrder::LittleEndian);
+            let symbols_offset: u32 = s.read();
+            let number_of_symbols: u32 = s.read();
+            let strings_offset: u32 = s.read();
+            let strings_size: u32 = s.read();
+    
+            let strings = {
+                let start = strings_offset as usize;
+                let end = start + strings_size as usize;
+                &self.data[start..end]
+            };
+    
+            let symbols_data = &self.data[symbols_offset as usize..];
+            return (
+                parse_symbols(symbols_data, number_of_symbols, strings, text_section),
+                text_section.size,
+            );
+        }
+    
+        (Vec::new(), 0)
     }
-
-    (Vec::new(), 0)
 }
 
 #[derive(Clone, Copy, Debug)]
