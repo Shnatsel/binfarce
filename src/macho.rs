@@ -2,17 +2,18 @@ use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
 use crate::ParseError;
+use std::cmp::min;
 
 const LC_SYMTAB: u32 = 0x2;
 const LC_SEGMENT_64: u32 = 0x19;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Cmd {
     kind: u32,
     offset: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Section {
     address: u64,
     size: u64,
@@ -29,6 +30,12 @@ pub struct MachoHeader {
     /// size of load command region
     sizeofcmds: u32,
     flags: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct Macho {
+    header: MachoHeader,
+    commands: Vec<Cmd>,
 }
 
 fn parse_macho_header(data: &[u8], byte_order: ByteOrder) -> Result<MachoHeader, ParseError> {
@@ -48,17 +55,13 @@ fn parse_macho_header(data: &[u8], byte_order: ByteOrder) -> Result<MachoHeader,
 }
 
 pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
-    let mut s = Stream::new(data, ByteOrder::LittleEndian);
-    s.skip::<u32>(); // magic
-    s.skip::<u32>(); // cputype
-    s.skip::<u32>(); // cpusubtype
-    s.skip::<u32>(); // filetype
-    let number_of_commands: u32 = s.read();
-    s.skip::<u32>(); // sizeofcmds
-    s.skip::<u32>(); // flags
-    s.skip::<u32>(); // reserved
+    let header = parse_macho_header(data, ByteOrder::LittleEndian).unwrap(); //TODO: harden
+    let number_of_commands = header.ncmds;
 
-    let mut commands = Vec::with_capacity(number_of_commands as usize);
+    let mut s = Stream::new(data, ByteOrder::LittleEndian);
+    s.skip_len(std::mem::size_of::<MachoHeader>());
+    // Do not pre-allocate more than 64Mb of memory, otherwise a malformed file will OOM us
+    let mut commands = Vec::with_capacity(min(number_of_commands, 65_535) as usize);
     for _ in 0..number_of_commands {
         let cmd: u32 = s.read();
         let cmd_size: u32 = s.read();
