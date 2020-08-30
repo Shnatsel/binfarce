@@ -4,6 +4,8 @@ use crate::parser::*;
 use crate::ParseError;
 
 use std::cmp::min;
+use std::ops::Range;
+use std::convert::TryInto;
 
 const LC_SYMTAB: u32 = 0x2;
 const LC_SEGMENT_64: u32 = 0x19;
@@ -20,6 +22,14 @@ pub struct Section <'a> {
     section_name: &'a str,
     address: u64,
     size: u64,
+}
+
+impl Section <'_> {
+    pub fn range(&self) -> Result<Range<usize>, ParseError> {
+        let start: usize = self.address.try_into()?;
+        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError{})?;
+        Ok(start..end)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
