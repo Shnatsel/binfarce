@@ -15,7 +15,7 @@ struct Cmd {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Section <'a> {
+pub struct Section <'a> {
     segment_name: &'a str,
     section_name: &'a str,
     address: u64,
@@ -126,7 +126,21 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     })
 }
 
-impl Macho<'_> {
+impl <'a> Macho<'a> {
+    pub fn header(&self) -> MachoHeader {
+        self.header.clone()
+    }
+
+    pub fn sections(&self) -> Vec<Section> {
+        self.sections.clone()
+    }
+
+    pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Option<Section> {
+        self.sections.iter().find(|x| {
+            x.segment_name == segment_name && x.section_name == section_name
+        }).cloned()
+    }
+
     pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
         let text_section_index = self.sections.iter().position(|x| {
             x.segment_name == "__TEXT" && x.section_name == "__text"
