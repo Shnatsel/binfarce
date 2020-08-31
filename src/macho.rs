@@ -86,7 +86,7 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
 
         // cmd_size is a size of a whole command data,
         // so we have to remove the header size first.
-        s.skip_len(cmd_size as usize - 8);
+        s.skip_len(cmd_size as usize - 8); // TODO: harden
     }
 
     let mut sections: Vec<Section> = Vec::new();
