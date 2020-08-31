@@ -12,19 +12,36 @@ const IMAGE_SYM_DTYPE_FUNCTION: u16 = 2;
 const SIZEOF_PE_MAGIC: usize = 4;
 const SIZEOF_COFF_HEADER: usize = 20;
 
+#[derive(Debug,Copy, Clone)]
+pub struct PeHeader {
+    machine: u16,
+    number_of_sections: u16,
+    time_date_stamp: u32,
+    pointer_to_symbol_table: u32,
+    number_of_symbols: u32,
+    size_of_optional_header: u16,
+    characteristics: u16,
+}
+
+fn parse_pe_header(s: &mut Stream) -> Result<PeHeader, UnexpectedEof> {
+    s.skip::<u32>(); // magic
+    Ok(PeHeader {
+        machine: s.read(),
+        number_of_sections: s.read(),
+        time_date_stamp: s.read(),
+        pointer_to_symbol_table: s.read(),
+        number_of_symbols: s.read(),
+        size_of_optional_header: s.read(),
+        characteristics: s.read(),
+    })
+}
+
 pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
     let mut s = Stream::new_at(data, PE_POINTER_OFFSET, ByteOrder::LittleEndian);
     let pe_pointer = s.read::<u32>() as usize;
 
     let mut s = Stream::new_at(data, pe_pointer, ByteOrder::LittleEndian);
-    s.read::<u32>(); // magic
-    s.skip::<u16>(); // machine
-    let number_of_sections: u16 = s.read();
-    s.skip::<u32>(); // time_date_stamp
-    let pointer_to_symbol_table = s.read::<u32>() as usize;
-    let number_of_symbols = s.read::<u32>() as usize;
-    let size_of_optional_header: u16 = s.read();
-    s.skip::<u16>(); // characteristics
+    let header = parse_pe_header(&mut s).unwrap(); //TODO: harden
 
     let mut text_section_size = 0;
     let mut text_section_index = 0;
@@ -33,10 +50,10 @@ pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
               pe_pointer
             + SIZEOF_PE_MAGIC
             + SIZEOF_COFF_HEADER
-            + size_of_optional_header as usize;
+            + header.size_of_optional_header as usize;
 
         let mut s = Stream::new_at(data, sections_offset, ByteOrder::LittleEndian);
-        for i in 0..number_of_sections {
+        for i in 0..header.number_of_sections {
             let name = s.read_bytes(8);
             s.skip_len(8); // virtual_size + virtual_address
             let size_of_raw_data: u32 = s.read();
@@ -51,6 +68,7 @@ pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
         }
     }
 
+    let number_of_symbols = header.number_of_symbols as usize;
     let mut symbols = Vec::with_capacity(number_of_symbols);
 
     // Add the .text section size, which will be used
@@ -61,7 +79,7 @@ pub fn parse(data: &[u8]) -> (Vec<SymbolData>, u64) {
         size: 0,
     });
 
-    let mut s = Stream::new_at(data, pointer_to_symbol_table, ByteOrder::LittleEndian);
+    let mut s = Stream::new_at(data, header.pointer_to_symbol_table as usize, ByteOrder::LittleEndian);
     let symbols_data = s.read_bytes(number_of_symbols * COFF_SYMBOL_SIZE);
     let string_table_offset = s.offset();
 
