@@ -54,7 +54,7 @@ pub struct Macho <'a> {
     sections: Vec<Section<'a>>
 }
 
-fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, ParseError> {
+fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
     // TODO: harden
     s.skip::<u32>(); // magic
     let header = MachoHeader {
