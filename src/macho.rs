@@ -21,12 +21,13 @@ pub struct Section <'a> {
     segment_name: &'a str,
     section_name: &'a str,
     address: u64,
+    offset: u32,
     size: u64,
 }
 
 impl Section <'_> {
     pub fn range(&self) -> Result<Range<usize>, ParseError> {
-        let start: usize = self.address.try_into()?;
+        let start: usize = self.offset.try_into()?;
         let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError{})?;
         Ok(start..end)
     }
@@ -108,7 +109,7 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
                 let segment_name = parse_null_string(s.read_bytes(16), 0);
                 let address: u64 = s.read();
                 let size: u64 = s.read();
-                s.skip::<u32>(); // offset
+                let offset: u32 = s.read();
                 s.skip::<u32>(); // align
                 s.skip::<u32>(); // reloff
                 s.skip::<u32>(); // nreloc
@@ -120,6 +121,7 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
                         segment_name: segment,
                         section_name: section,
                         address: address,
+                        offset: offset,
                         size: size,
                     });
                 }
