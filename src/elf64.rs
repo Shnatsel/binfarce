@@ -39,8 +39,8 @@ pub struct Elf64Header {
     pub shstrndx: elf::Half,
 }
 
-fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, ParseError> {
-    let mut s = Stream::new(&data.get(16..).ok_or(ParseError{})?, byte_order);
+fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, UnexpectedEof> {
+    let mut s = Stream::new(&data.get(16..).ok_or(UnexpectedEof{})?, byte_order);
     if s.remaining() >= RAW_ELF_HEADER_SIZE {
         Ok(Elf64Header {
             elf_type: s.read(),
@@ -58,7 +58,7 @@ fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, P
             shstrndx: s.read(),
         })
     } else {
-        Err(ParseError {})
+        Err(UnexpectedEof {})
     }
 
 }
