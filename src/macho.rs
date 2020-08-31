@@ -53,7 +53,7 @@ pub struct Macho <'a> {
     sections: Vec<Section<'a>>
 }
 
-fn parse_macho_header(s: &mut Stream, byte_order: ByteOrder) -> Result<MachoHeader, ParseError> {
+fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, ParseError> {
     // TODO: harden
     s.skip::<u32>(); // magic
     let header = MachoHeader {
@@ -70,7 +70,7 @@ fn parse_macho_header(s: &mut Stream, byte_order: ByteOrder) -> Result<MachoHead
 
 pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let mut s = Stream::new(&data, ByteOrder::LittleEndian);
-    let header = parse_macho_header(s, ByteOrder::LittleEndian).unwrap(); //TODO: harden
+    let header = parse_macho_header(&mut s).unwrap(); //TODO: harden
     let number_of_commands = header.ncmds;
 
     // Do not pre-allocate more than 64Mb of memory, otherwise a malformed file will OOM us
