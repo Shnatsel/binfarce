@@ -5,6 +5,9 @@ use crate::demangle::SymbolData;
 use crate::parser::*;
 use crate::ParseError;
 
+use std::ops::Range;
+use std::convert::TryInto;
+
 const PE_POINTER_OFFSET: usize = 0x3c;
 const COFF_SYMBOL_SIZE: usize = 18;
 const IMAGE_SYM_CLASS_EXTERNAL: u8 = 2;
@@ -28,7 +31,16 @@ pub struct Section<'a> {
     name: &'a str,
     virtual_size: u32,
     size_of_raw_data: u32,
+    pointer_to_raw_data: u32,
     index: usize
+}
+
+impl Section <'_> {
+    pub fn range(&self) -> Result<Range<usize>, ParseError> {
+        let start: usize = self.pointer_to_raw_data.try_into()?;
+        let end: usize = start.checked_add(self.size_of_raw_data.try_into()?).ok_or(ParseError{})?;
+        Ok(start..end)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +84,8 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
         let virtual_size: u32 = s.read();
         s.skip::<u32>(); // virtual_address
         let size_of_raw_data: u32 = s.read();
-        s.skip_len(20); // other data
+        let pointer_to_raw_data: u32 = s.read();
+        s.skip_len(16); // other data
 
         let len = name.iter().position(|c| *c == 0).unwrap_or(8);
         // ignore sections with non-UTF8 names since the spec says they must be UTF-8
@@ -81,6 +94,7 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
                 name: name_str,
                 virtual_size: virtual_size,
                 size_of_raw_data: size_of_raw_data,
+                pointer_to_raw_data: pointer_to_raw_data,
                 index: i.into(),
             })
         }
@@ -93,6 +107,14 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
 }
 
 impl Pe<'_> {
+    pub fn header(&self) -> PeHeader {
+        self.header.clone()
+    }
+
+    pub fn sections(&self) -> Vec<Section> {
+        self.sections.clone()
+    }
+
     pub fn section_with_name(&self, section_name: &str) -> Option<Section> {
         self.sections.iter().find(|x| {
             x.name == section_name
