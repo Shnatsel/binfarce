@@ -104,11 +104,6 @@ impl<'a> Stream<'a> {
     }
 
     #[inline]
-    pub fn byte_order(&self) -> ByteOrder {
-        self.byte_order
-    }
-
-    #[inline]
     pub fn at_end(&self) -> bool {
         self.offset >= self.data.len()
     }
