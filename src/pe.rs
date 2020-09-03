@@ -51,7 +51,7 @@ pub struct Pe<'a> {
 }
 
 fn parse_pe_header(s: &mut Stream) -> Result<PeHeader, UnexpectedEof> {
-    s.skip::<u32>(); // magic
+    s.skip::<u32>()?; // magic
     Ok(PeHeader {
         machine: s.read(),
         number_of_sections: s.read(),
@@ -82,10 +82,10 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
     for i in 0..header.number_of_sections {
         let name = s.read_bytes(8);
         let virtual_size: u32 = s.read();
-        s.skip::<u32>(); // virtual_address
+        s.skip::<u32>()?; // virtual_address
         let size_of_raw_data: u32 = s.read();
         let pointer_to_raw_data: u32 = s.read();
-        s.skip_len(16); // other data
+        s.skip_len(16)?; // other data
 
         let len = name.iter().position(|c| *c == 0).unwrap_or(8);
         // ignore sections with non-UTF8 names since the spec says they must be UTF-8
@@ -149,7 +149,7 @@ impl Pe<'_> {
             let kind: u16 = s.read();
             let storage_class: u8 = s.read();
             let number_of_aux_symbols: u8 = s.read();
-            s.skip_len(number_of_aux_symbols as usize * COFF_SYMBOL_SIZE);
+            s.skip_len(number_of_aux_symbols as usize * COFF_SYMBOL_SIZE); //TODO: harden
     
             if (kind >> IMAGE_SYM_DTYPE_SHIFT) != IMAGE_SYM_DTYPE_FUNCTION {
                 continue;
