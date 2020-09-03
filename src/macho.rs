@@ -93,7 +93,7 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let mut sections: Vec<Section> = Vec::new();
     for cmd in &commands {
         if cmd.kind == LC_SEGMENT_64 {
-            let mut s = Stream::new_at(data, cmd.offset, ByteOrder::LittleEndian);
+            let mut s = Stream::new_at(data, cmd.offset, ByteOrder::LittleEndian)?;
             s.skip_len(16)?; // segname
             s.skip::<u64>()?; // vmaddr
             s.skip::<u64>()?; // vmsize

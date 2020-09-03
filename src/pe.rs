@@ -64,10 +64,10 @@ fn parse_pe_header(s: &mut Stream) -> Result<PeHeader, UnexpectedEof> {
 }
 
 pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
-    let mut s = Stream::new_at(data, PE_POINTER_OFFSET, ByteOrder::LittleEndian);
+    let mut s = Stream::new_at(data, PE_POINTER_OFFSET, ByteOrder::LittleEndian)?;
     let pe_pointer = s.read::<u32>() as usize;
 
-    let mut s = Stream::new_at(data, pe_pointer, ByteOrder::LittleEndian);
+    let mut s = Stream::new_at(data, pe_pointer, ByteOrder::LittleEndian)?;
     let header = parse_pe_header(&mut s)?;
 
     let sections_offset = //TODO: harden
@@ -78,7 +78,7 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
 
     // Won't OOM because number_of_sections is a u16
     let mut sections = Vec::with_capacity(header.number_of_sections.into());
-    let mut s = Stream::new_at(data, sections_offset, ByteOrder::LittleEndian);
+    let mut s = Stream::new_at(data, sections_offset, ByteOrder::LittleEndian)?;
     for i in 0..header.number_of_sections {
         let name = s.read_bytes(8);
         let virtual_size: u32 = s.read();
@@ -137,7 +137,7 @@ impl Pe<'_> {
             size: 0,
         });
     
-        let mut s = Stream::new_at(self.data, self.header.pointer_to_symbol_table as usize, ByteOrder::LittleEndian);
+        let mut s = Stream::new_at(self.data, self.header.pointer_to_symbol_table as usize, ByteOrder::LittleEndian).unwrap();
         let symbols_data = s.read_bytes(number_of_symbols * COFF_SYMBOL_SIZE);
         let string_table_offset = s.offset();
     

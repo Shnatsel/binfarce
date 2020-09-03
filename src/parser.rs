@@ -94,12 +94,15 @@ impl<'a> Stream<'a> {
     }
 
     #[inline]
-    pub fn new_at(data: &'a [u8], offset: usize, byte_order: ByteOrder) -> Self {
-        // TODO: harden
-        Stream {
-            data,
-            offset,
-            byte_order,
+    pub fn new_at(data: &'a [u8], offset: usize, byte_order: ByteOrder) -> Result<Self, UnexpectedEof> {
+        if offset < data.len() {
+            Ok(Stream {
+                data,
+                offset,
+                byte_order,
+            })
+        } else {
+            Err(UnexpectedEof{})
         }
     }
 
