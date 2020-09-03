@@ -17,12 +17,12 @@ mod section_type {
     pub const STRING_TABLE: super::elf::Word = 3;
 }
 
-const RAW_ELF_HEADER_SIZE: usize = size_of::<Elf64Header>();
+const RAW_ELF_HEADER_SIZE: usize = size_of::<Elf32Header>();
 const RAW_SECTION_HEADER_SIZE: usize = size_of::<elf::Word>() * 8 +
     size_of::<elf::Address>() + size_of::<elf::Offset>();
 
 #[derive(Debug, Clone, Copy)]
-pub struct Elf64Header {
+pub struct Elf32Header {
     pub elf_type: elf::Half,
     pub machine: elf::Half,
     pub version: elf::Word,
@@ -38,10 +38,10 @@ pub struct Elf64Header {
     pub shstrndx: elf::Half,
 }
 
-fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, UnexpectedEof> {
+fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf32Header, UnexpectedEof> {
     let mut s = Stream::new(&data.get(16..).ok_or(UnexpectedEof{})?, byte_order);
     if s.remaining() >= RAW_ELF_HEADER_SIZE {
-        Ok(Elf64Header {
+        Ok(Elf32Header {
             elf_type: s.read()?,
             machine: s.read()?,
             version: s.read()?,
@@ -75,7 +75,7 @@ pub struct Section {
 fn parse_elf_sections(
     data: &[u8],
     byte_order: ByteOrder,
-    header: &Elf64Header
+    header: &Elf32Header
 ) -> Result<Vec<Section>, ParseError> {
     let count: usize = header.shnum.into();
     let section_offset: usize = header.shoff.try_into()?;
@@ -118,21 +118,21 @@ impl Section {
     }
 }
 
-pub struct Elf64<'a> {
+pub struct Elf32<'a> {
     data: &'a [u8],
     byte_order: ByteOrder,
-    header: Elf64Header,
+    header: Elf32Header,
     sections: Vec<Section>,
 }
 
-pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf64, ParseError> {
+pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf32, ParseError> {
     let header = parse_elf_header(data, byte_order)?;
     let sections = parse_elf_sections(data, byte_order, &header)?;
-    Ok(Elf64 { data, byte_order, header, sections })
+    Ok(Elf32 { data, byte_order, header, sections })
 }
 
-impl<'a> Elf64<'a> {
-    pub fn header(&self) -> Elf64Header {
+impl<'a> Elf32<'a> {
+    pub fn header(&self) -> Elf32Header {
         self.header
     }
 
