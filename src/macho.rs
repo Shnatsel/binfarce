@@ -105,8 +105,8 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
             s.skip::<u32>()?; // flags
 
             for _ in 0..sections_count {
-                let section_name = parse_null_string(s.read_bytes(16), 0);
-                let segment_name = parse_null_string(s.read_bytes(16), 0);
+                let section_name = parse_null_string(s.read_bytes(16)?, 0);
+                let segment_name = parse_null_string(s.read_bytes(16)?, 0);
                 let address: u64 = s.read()?;
                 let size: u64 = s.read()?;
                 let offset: u32 = s.read()?;

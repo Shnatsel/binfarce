@@ -132,16 +132,20 @@ impl<'a> Stream<'a> {
 
     #[inline]
     pub fn read<T: RawNumber>(&mut self) -> Result<T, UnexpectedEof> {
+        let new_offset = self.offset.checked_add(mem::size_of::<T>()).ok_or(UnexpectedEof{})?;
         let v = T::parse(self).ok_or(UnexpectedEof{})?;
-        self.offset += self.offset.checked_add(mem::size_of::<T>()).ok_or(UnexpectedEof{})?;
+        self.offset = new_offset;
         Ok(v)
     }
 
     #[inline]
-    pub fn read_bytes(&mut self, len: usize) -> &'a [u8] {
-        let offset = self.offset;
-        self.offset += len; //TODO: harden
-        &self.data[offset..(offset + len)]
+    pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], UnexpectedEof> {
+        let new_offset = self.offset.checked_add(len)
+            .ok_or(UnexpectedEof{})?;
+        let bytes = &self.data.get(self.offset..new_offset)
+            .ok_or(UnexpectedEof{})?;
+        self.offset = new_offset;
+        Ok(bytes)
     }
 
     #[inline]

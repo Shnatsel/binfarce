@@ -18,13 +18,13 @@ pub fn parse(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
             s.skip_len(1)?;
         }
 
-        let identifier = str::from_utf8(s.read_bytes(16)).unwrap();
+        let identifier = str::from_utf8(s.read_bytes(16)?).unwrap();
         s.skip_len(12)?; // timestamp
         s.skip_len(6)?; // owner_id
         s.skip_len(6)?; // group_id
         s.skip_len(8)?; // mode
-        let file_size = str::from_utf8(s.read_bytes(10)).unwrap();
-        let terminator = s.read_bytes(2);
+        let file_size = str::from_utf8(s.read_bytes(10)?).unwrap();
+        let terminator = s.read_bytes(2)?;
 
         assert_eq!(terminator, &[0x60, 0x0A]);
 
@@ -33,7 +33,7 @@ pub fn parse(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
         let mut raw_name_len: usize = 0;
         if identifier.starts_with("#1/") {
             raw_name_len = identifier[3..].trim().parse().unwrap();
-            let raw_name = s.read_bytes(raw_name_len);
+            let raw_name = s.read_bytes(raw_name_len)?;
             name = str::from_utf8(raw_name).unwrap();
             name = name.trim_end_matches('\0');
         }
@@ -43,10 +43,10 @@ pub fn parse(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
         file_size -= raw_name_len;
 
         if name.is_empty() && identifier == "/               " {
-            let index_data = s.read_bytes(file_size);
+            let index_data = s.read_bytes(file_size)?;
             return parse_sysv(index_data);
         } else if name == "__.SYMDEF" {
-            let index_data = s.read_bytes(file_size);
+            let index_data = s.read_bytes(file_size)?;
             return parse_bsd(index_data);
         } else {
             s.skip_len(file_size)?;
@@ -91,7 +91,7 @@ fn parse_bsd(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
     let entries_len = s.read::<u32>()? as usize;
     s.skip_len(entries_len)?;
     let strings_len = s.read::<u32>()? as usize;
-    let strings = s.read_bytes(strings_len);
+    let strings = s.read_bytes(strings_len)?;
 
     let mut i = 0;
     while i < strings.len() {

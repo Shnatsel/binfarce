@@ -80,7 +80,7 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
     let mut sections = Vec::with_capacity(header.number_of_sections.into());
     let mut s = Stream::new_at(data, sections_offset, ByteOrder::LittleEndian)?;
     for i in 0..header.number_of_sections {
-        let name = s.read_bytes(8);
+        let name = s.read_bytes(8)?;
         let virtual_size: u32 = s.read()?;
         s.skip::<u32>()?; // virtual_address
         let size_of_raw_data: u32 = s.read()?;
@@ -138,12 +138,12 @@ impl Pe<'_> {
         });
     
         let mut s = Stream::new_at(self.data, self.header.pointer_to_symbol_table as usize, ByteOrder::LittleEndian).unwrap();
-        let symbols_data = s.read_bytes(number_of_symbols * COFF_SYMBOL_SIZE);
+        let symbols_data = s.read_bytes(number_of_symbols * COFF_SYMBOL_SIZE)?;
         let string_table_offset = s.offset();
     
         let mut s = Stream::new(symbols_data, ByteOrder::LittleEndian);
         while !s.at_end() {
-            let name = s.read_bytes(8);
+            let name = s.read_bytes(8)?;
             let value: u32 = s.read()?;
             let section_number: i16 = s.read()?;
             let kind: u16 = s.read()?;
