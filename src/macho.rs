@@ -28,7 +28,7 @@ pub struct Section <'a> {
 impl Section <'_> {
     pub fn range(&self) -> Result<Range<usize>, ParseError> {
         let start: usize = self.offset.try_into()?;
-        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError{})?;
+        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError::MalformedInput)?;
         Ok(start..end)
     }
 }

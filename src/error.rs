@@ -1,29 +1,27 @@
 use std::{fmt::{Debug, Display}, error::Error};
 
-pub struct ParseError {}
+#[derive(Debug, Copy, Clone)]
+pub enum ParseError {
+    MalformedInput,
+    UnexpectedEof,
+}
 
 impl Error for ParseError {}
 
-impl Debug for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Malformed input")
-    }
-}
-
 impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Malformed input")
+        write!(f, "Malformed input file")
     }
 }
 
 impl From<std::num::TryFromIntError> for ParseError {
     fn from(_: std::num::TryFromIntError) -> Self {
-        ParseError {}
+        ParseError::MalformedInput
     }
 }
 
 impl From<crate::parser::UnexpectedEof> for ParseError {
     fn from(_: crate::parser::UnexpectedEof) -> Self {
-        ParseError {}
+        ParseError::UnexpectedEof
     }
 }

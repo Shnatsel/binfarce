@@ -80,7 +80,7 @@ fn parse_elf_sections(
 ) -> Result<Vec<Section>, ParseError> {
     let count: usize = header.shnum.into();
     let section_offset: usize = header.shoff.try_into()?;
-    let mut s = Stream::new(&data.get(section_offset..).ok_or(ParseError{})?, byte_order);
+    let mut s = Stream::new_at(data, section_offset, byte_order);
     // with_capacity() below will not exhaust memory because `count` is converted from a `u16`
     let mut sections = Vec::with_capacity(count);
     while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
@@ -114,7 +114,7 @@ fn parse_elf_sections(
 impl Section {
     pub fn range(&self) -> Result<Range<usize>, ParseError> {
         let start: usize = self.offset.try_into()?;
-        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError{})?;
+        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError::MalformedInput)?;
         Ok(start..end)
     }
 }
