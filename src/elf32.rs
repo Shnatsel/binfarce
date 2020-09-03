@@ -210,8 +210,8 @@ fn parse_symbols(
         if let Some(s) = parse_null_string(strings, name_offset) {
             symbols.push(SymbolData {
                 name: crate::demangle::SymbolName::demangle(s),
-                address: value as u64,
-                size: size as u64,
+                address: value.into(),
+                size: size.into(),
             });
         }
     }

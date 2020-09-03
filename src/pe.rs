@@ -133,7 +133,7 @@ impl Pe<'_> {
         // to calculate the size of the last symbol.
         symbols.push(SymbolData {
             name: crate::demangle::SymbolName::demangle(".text"),
-            address: text_section_size as u64,
+            address: text_section_size.into(),
             size: 0,
         });
     
@@ -176,7 +176,7 @@ impl Pe<'_> {
             if let Some(s) = name {
                 symbols.push(SymbolData {
                     name: crate::demangle::SymbolName::demangle(s),
-                    address: value as u64,
+                    address: value.into(),
                     size: 0,
                 });
             }
@@ -199,6 +199,6 @@ impl Pe<'_> {
         // Remove the last symbol, which is `.text` section size.
         symbols.pop();
     
-        Ok((symbols, text_section_size as u64))
+        Ok((symbols, text_section_size.into()))
     }
 }
