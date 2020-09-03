@@ -76,7 +76,7 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
         + SIZEOF_COFF_HEADER
         + header.size_of_optional_header as usize;
 
-    // Won't OOM because number_of_sections is a u16
+    // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
     let mut sections = Vec::with_capacity(header.number_of_sections.into());
     let mut s = Stream::new_at(data, sections_offset, ByteOrder::LittleEndian)?;
     for i in 0..header.number_of_sections {

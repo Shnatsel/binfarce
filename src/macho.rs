@@ -74,8 +74,8 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let header = parse_macho_header(&mut s).unwrap(); //TODO: harden
     let number_of_commands = header.ncmds;
 
-    // Do not pre-allocate more than 64Mb of memory, otherwise a malformed file will OOM us
-    let mut commands = Vec::with_capacity(min(number_of_commands, 65_535) as usize);
+    // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
+    let mut commands = Vec::with_capacity(min(number_of_commands, 1024) as usize);
     for _ in 0..number_of_commands {
         let cmd: u32 = s.read()?;
         let cmd_size: u32 = s.read()?;

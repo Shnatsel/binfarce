@@ -1,4 +1,4 @@
-use std::{convert::TryInto, ops::Range, mem::size_of};
+use std::{convert::TryInto, ops::Range, mem::size_of, cmp::min};
 
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
@@ -80,8 +80,8 @@ fn parse_elf_sections(
     let count: usize = header.shnum.into();
     let section_offset: usize = header.shoff.try_into()?;
     let mut s = Stream::new_at(data, section_offset, byte_order)?;
-    // with_capacity() below will not exhaust memory because `count` is converted from a `u16`
-    let mut sections = Vec::with_capacity(count);
+    // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
+    let mut sections = Vec::with_capacity(min(count, 1024));
     while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
         let name  = s.read::<elf::Word>()?;
         let kind  = s.read::<elf::Word>()?;
