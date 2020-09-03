@@ -14,7 +14,6 @@ impl Display for ParseError {
             ParseError::MalformedInput => write!(f, "Malformed input file"),
             ParseError::UnexpectedEof => write!(f, "Unexpected end of file"),
         }
-        
     }
 }
 
