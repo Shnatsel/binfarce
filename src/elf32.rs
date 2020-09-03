@@ -85,13 +85,13 @@ fn parse_elf_sections(
     while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
         let name  = s.read::<elf::Word>();
         let kind  = s.read::<elf::Word>();
-        s.skip::<elf::Word>(); // flags
-        s.skip::<elf::Address>(); // addr
+        s.skip::<elf::Word>()?; // flags
+        s.skip::<elf::Address>()?; // addr
         let offset = s.read::<elf::Offset>();
         let size = s.read::<elf::Word>();
         let link = s.read::<elf::Word>() as usize;
-        s.skip::<elf::Word>(); // info
-        s.skip::<elf::Word>(); // addralign
+        s.skip::<elf::Word>()?; // info
+        s.skip::<elf::Word>()?; // addralign
         let entry_size = s.read::<elf::Word>();
 
         // TODO: harden?
