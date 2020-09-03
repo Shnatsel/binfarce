@@ -120,25 +120,25 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
                     sections.push(Section {
                         segment_name: segment,
                         section_name: section,
-                        address: address,
-                        offset: offset,
-                        size: size,
+                        address,
+                        offset,
+                        size,
                     });
                 }
             }
         }
     }
     Ok(Macho{
-        data: data,
-        header: header,
-        commands: commands,
-        sections: sections,
+        data,
+        header,
+        commands,
+        sections,
     })
 }
 
 impl <'a> Macho<'a> {
     pub fn header(&self) -> MachoHeader {
-        self.header.clone()
+        self.header
     }
 
     pub fn sections(&self) -> Vec<Section> {

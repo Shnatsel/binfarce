@@ -2,6 +2,7 @@
 
 // TODO: clean up all possible truncations and enable this
 //#![warn(clippy::cast_possible_truncation)]
+//#![warn(clippy::cast_lossless)]
 
 // For legacy code. TODO: stop suppressing these lints
 #![allow(clippy::single_match)]

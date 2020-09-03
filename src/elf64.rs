@@ -134,7 +134,7 @@ pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf64, ParseError> {
 
 impl<'a> Elf64<'a> {
     pub fn header(&self) -> Elf64Header {
-        self.header.clone()
+        self.header
     }
 
     pub fn sections(&self) -> Vec<Section> {

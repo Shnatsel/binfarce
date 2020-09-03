@@ -92,23 +92,23 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
         if let Ok(name_str) = std::str::from_utf8(&name[0..len]) {
             sections.push(Section{
                 name: name_str,
-                virtual_size: virtual_size,
-                size_of_raw_data: size_of_raw_data,
-                pointer_to_raw_data: pointer_to_raw_data,
+                virtual_size,
+                size_of_raw_data,
+                pointer_to_raw_data,
                 index: i.into(),
             })
         }
     }
     Ok(Pe {
-        data: data,
-        header: header,
-        sections: sections,
+        data,
+        header,
+        sections,
     })
 }
 
 impl Pe<'_> {
     pub fn header(&self) -> PeHeader {
-        self.header.clone()
+        self.header
     }
 
     pub fn sections(&self) -> Vec<Section> {
