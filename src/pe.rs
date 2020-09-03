@@ -53,19 +53,19 @@ pub struct Pe<'a> {
 fn parse_pe_header(s: &mut Stream) -> Result<PeHeader, UnexpectedEof> {
     s.skip::<u32>()?; // magic
     Ok(PeHeader {
-        machine: s.read(),
-        number_of_sections: s.read(),
-        time_date_stamp: s.read(),
-        pointer_to_symbol_table: s.read(),
-        number_of_symbols: s.read(),
-        size_of_optional_header: s.read(),
-        characteristics: s.read(),
+        machine: s.read()?,
+        number_of_sections: s.read()?,
+        time_date_stamp: s.read()?,
+        pointer_to_symbol_table: s.read()?,
+        number_of_symbols: s.read()?,
+        size_of_optional_header: s.read()?,
+        characteristics: s.read()?,
     })
 }
 
 pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
     let mut s = Stream::new_at(data, PE_POINTER_OFFSET, ByteOrder::LittleEndian)?;
-    let pe_pointer = s.read::<u32>() as usize;
+    let pe_pointer = s.read::<u32>()? as usize;
 
     let mut s = Stream::new_at(data, pe_pointer, ByteOrder::LittleEndian)?;
     let header = parse_pe_header(&mut s)?;
@@ -81,10 +81,10 @@ pub fn parse(data: &[u8]) -> Result<Pe, ParseError> {
     let mut s = Stream::new_at(data, sections_offset, ByteOrder::LittleEndian)?;
     for i in 0..header.number_of_sections {
         let name = s.read_bytes(8);
-        let virtual_size: u32 = s.read();
+        let virtual_size: u32 = s.read()?;
         s.skip::<u32>()?; // virtual_address
-        let size_of_raw_data: u32 = s.read();
-        let pointer_to_raw_data: u32 = s.read();
+        let size_of_raw_data: u32 = s.read()?;
+        let pointer_to_raw_data: u32 = s.read()?;
         s.skip_len(16)?; // other data
 
         let len = name.iter().position(|c| *c == 0).unwrap_or(8);
@@ -144,11 +144,11 @@ impl Pe<'_> {
         let mut s = Stream::new(symbols_data, ByteOrder::LittleEndian);
         while !s.at_end() {
             let name = s.read_bytes(8);
-            let value: u32 = s.read();
-            let section_number: i16 = s.read();
-            let kind: u16 = s.read();
-            let storage_class: u8 = s.read();
-            let number_of_aux_symbols: u8 = s.read();
+            let value: u32 = s.read()?;
+            let section_number: i16 = s.read()?;
+            let kind: u16 = s.read()?;
+            let storage_class: u8 = s.read()?;
+            let number_of_aux_symbols: u8 = s.read()?;
             s.skip_len(number_of_aux_symbols as usize * COFF_SYMBOL_SIZE)?;
     
             if (kind >> IMAGE_SYM_DTYPE_SHIFT) != IMAGE_SYM_DTYPE_FUNCTION {
@@ -169,7 +169,7 @@ impl Pe<'_> {
                 std::str::from_utf8(&name[0..len]).ok()
             } else {
                 let mut s2 = Stream::new(&name[4..], ByteOrder::LittleEndian);
-                let name_offset: u32 = s2.read();
+                let name_offset: u32 = s2.read()?;
                 parse_null_string(self.data, string_table_offset + name_offset as usize)
             };
     

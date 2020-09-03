@@ -58,12 +58,12 @@ fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
     // TODO: harden
     s.skip::<u32>()?; // magic
     let header = MachoHeader {
-        cputype: s.read(),
-        cpusubtype: s.read(),
-        filetype: s.read(),
-        ncmds: s.read(),
-        sizeofcmds: s.read(),
-        flags: s.read(),
+        cputype: s.read()?,
+        cpusubtype: s.read()?,
+        filetype: s.read()?,
+        ncmds: s.read()?,
+        sizeofcmds: s.read()?,
+        flags: s.read()?,
     };
     s.skip::<u32>()?; // reserved
     Ok(header)
@@ -77,8 +77,8 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     // Do not pre-allocate more than 64Mb of memory, otherwise a malformed file will OOM us
     let mut commands = Vec::with_capacity(min(number_of_commands, 65_535) as usize);
     for _ in 0..number_of_commands {
-        let cmd: u32 = s.read();
-        let cmd_size: u32 = s.read();
+        let cmd: u32 = s.read()?;
+        let cmd_size: u32 = s.read()?;
 
         commands.push(Cmd {
             kind: cmd,
@@ -101,15 +101,15 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
             s.skip::<u64>()?; // filesize
             s.skip::<u32>()?; // maxprot
             s.skip::<u32>()?; // initprot
-            let sections_count: u32 = s.read();
+            let sections_count: u32 = s.read()?;
             s.skip::<u32>()?; // flags
 
             for _ in 0..sections_count {
                 let section_name = parse_null_string(s.read_bytes(16), 0);
                 let segment_name = parse_null_string(s.read_bytes(16), 0);
-                let address: u64 = s.read();
-                let size: u64 = s.read();
-                let offset: u32 = s.read();
+                let address: u64 = s.read()?;
+                let size: u64 = s.read()?;
+                let offset: u32 = s.read()?;
                 s.skip::<u32>()?; // align
                 s.skip::<u32>()?; // reloff
                 s.skip::<u32>()?; // nreloc
@@ -161,10 +161,10 @@ impl <'a> Macho<'a> {
     
         if let Some(cmd) = self.commands.iter().find(|v| v.kind == LC_SYMTAB) {
             let mut s = Stream::new(&self.data[cmd.offset..], ByteOrder::LittleEndian);
-            let symbols_offset: u32 = s.read();
-            let number_of_symbols: u32 = s.read();
-            let strings_offset: u32 = s.read();
-            let strings_size: u32 = s.read();
+            let symbols_offset: u32 = s.read()?;
+            let number_of_symbols: u32 = s.read()?;
+            let strings_offset: u32 = s.read()?;
+            let strings_size: u32 = s.read()?;
     
             let strings = {
                 let start = strings_offset as usize;
@@ -200,11 +200,11 @@ fn parse_symbols(
     let mut raw_symbols = Vec::with_capacity(count as usize);
     let mut s = Stream::new(data, ByteOrder::LittleEndian);
     for _ in 0..count {
-        let string_index: u32 = s.read();
-        let kind: u8 = s.read();
-        let section: u8 = s.read();
+        let string_index: u32 = s.read()?;
+        let kind: u8 = s.read()?;
+        let section: u8 = s.read()?;
         s.skip::<u16>()?; // description
-        let value: u64 = s.read();
+        let value: u64 = s.read()?;
 
         if value == 0 {
             continue;

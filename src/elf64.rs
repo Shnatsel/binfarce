@@ -43,19 +43,19 @@ fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, U
     let mut s = Stream::new(&data.get(16..).ok_or(UnexpectedEof{})?, byte_order);
     if s.remaining() >= RAW_ELF_HEADER_SIZE {
         Ok(Elf64Header {
-            elf_type: s.read(),
-            machine: s.read(),
-            version: s.read(),
-            entry: s.read(),
-            phoff: s.read(),
-            shoff: s.read(),
-            flags: s.read(),
-            ehsize: s.read(),
-            phentsize: s.read(),
-            phnum: s.read(),
-            shentsize: s.read(),
-            shnum: s.read(),
-            shstrndx: s.read(),
+            elf_type: s.read()?,
+            machine: s.read()?,
+            version: s.read()?,
+            entry: s.read()?,
+            phoff: s.read()?,
+            shoff: s.read()?,
+            flags: s.read()?,
+            ehsize: s.read()?,
+            phentsize: s.read()?,
+            phnum: s.read()?,
+            shentsize: s.read()?,
+            shnum: s.read()?,
+            shstrndx: s.read()?,
         })
     } else {
         Err(UnexpectedEof {})
@@ -84,16 +84,16 @@ fn parse_elf_sections(
     // with_capacity() below will not exhaust memory because `count` is converted from a `u16`
     let mut sections = Vec::with_capacity(count);
     while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
-        let name  = s.read::<elf::Word>();
-        let kind  = s.read::<elf::Word>();
+        let name  = s.read::<elf::Word>()?;
+        let kind  = s.read::<elf::Word>()?;
         s.skip::<elf::XWord>()?; // flags
         s.skip::<elf::Address>()?; // addr
-        let offset = s.read::<elf::Offset>();
-        let size = s.read::<elf::XWord>();
-        let link = s.read::<elf::Word>() as usize;
+        let offset = s.read::<elf::Offset>()?;
+        let size = s.read::<elf::XWord>()?;
+        let link = s.read::<elf::Word>()? as usize;
         s.skip::<elf::Word>()?; // info
         s.skip::<elf::XWord>()?; // addralign
-        let entry_size = s.read::<elf::XWord>();
+        let entry_size = s.read::<elf::XWord>()?;
 
         // TODO: harden?
         let entries = if entry_size == 0 { 0 } else { size / entry_size } as usize;
@@ -181,12 +181,12 @@ fn parse_symbols(
     let mut symbols = Vec::with_capacity(count);
     while !s.at_end() {
         // Note: the order of fields in 32 and 64 bit ELF is different.
-        let name_offset = s.read::<elf::Word>() as usize;
-        let info: u8 = s.read();
+        let name_offset = s.read::<elf::Word>()? as usize;
+        let info: u8 = s.read()?;
         s.skip::<u8>()?; // other
-        let shndx: elf::Half = s.read();
-        let value: elf::Address = s.read();
-        let size: elf::XWord = s.read();
+        let shndx: elf::Half = s.read()?;
+        let value: elf::Address = s.read()?;
+        let size: elf::XWord = s.read()?;
 
         if shndx != text_section.index {
             continue;

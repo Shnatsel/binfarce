@@ -131,14 +131,10 @@ impl<'a> Stream<'a> {
     }
 
     #[inline]
-    pub fn read<T: RawNumber>(&mut self) -> T {
-        let v = T::parse(self);
-        self.offset += mem::size_of::<T>();
-        v.unwrap() // TODO: harden
-        // I'm leaving this as-is FOR NOW because I'm not done refactoring decoders yet,
-        // and putting unwrap() on every single invocation only to change it later
-        // is entirely useless. I'll revisit this once I've converted all 3 decoders
-        // to return errors instead of panicking.
+    pub fn read<T: RawNumber>(&mut self) -> Result<T, UnexpectedEof> {
+        let v = T::parse(self).ok_or(UnexpectedEof{})?;
+        self.offset += self.offset.checked_add(mem::size_of::<T>()).ok_or(UnexpectedEof{})?;
+        Ok(v)
     }
 
     #[inline]

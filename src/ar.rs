@@ -44,7 +44,7 @@ pub fn parse(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
 
         if name.is_empty() && identifier == "/               " {
             let index_data = s.read_bytes(file_size);
-            return Ok(parse_sysv(index_data));
+            return parse_sysv(index_data);
         } else if name == "__.SYMDEF" {
             let index_data = s.read_bytes(file_size);
             return parse_bsd(index_data);
@@ -56,12 +56,12 @@ pub fn parse(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
     Ok(Vec::new())
 }
 
-fn parse_sysv(data: &[u8]) -> Vec<String> {
+fn parse_sysv(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
     let mut symbols = Vec::new();
 
     let count = {
         let mut s = Stream::new(data, ByteOrder::BigEndian);
-        s.read::<u32>() as usize
+        s.read::<u32>()? as usize
     };
 
     // Skip offsets.
@@ -81,16 +81,16 @@ fn parse_sysv(data: &[u8]) -> Vec<String> {
         }
     }
 
-    symbols
+    Ok(symbols)
 }
 
 fn parse_bsd(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
     let mut symbols = Vec::new();
 
     let mut s = Stream::new(data, ByteOrder::LittleEndian);
-    let entries_len = s.read::<u32>() as usize;
+    let entries_len = s.read::<u32>()? as usize;
     s.skip_len(entries_len)?;
-    let strings_len = s.read::<u32>() as usize;
+    let strings_len = s.read::<u32>()? as usize;
     let strings = s.read_bytes(strings_len);
 
     let mut i = 0;
