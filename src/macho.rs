@@ -56,7 +56,7 @@ pub struct Macho <'a> {
 
 fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
     // TODO: harden
-    s.skip::<u32>(); // magic
+    s.skip::<u32>()?; // magic
     let header = MachoHeader {
         cputype: s.read(),
         cpusubtype: s.read(),
@@ -65,7 +65,7 @@ fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
         sizeofcmds: s.read(),
         flags: s.read(),
     };
-    s.skip::<u32>(); // reserved
+    s.skip::<u32>()?; // reserved
     Ok(header)
 }
 
@@ -87,22 +87,22 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
 
         // cmd_size is a size of a whole command data,
         // so we have to remove the header size first.
-        s.skip_len(cmd_size as usize - 8); // TODO: harden
+        s.skip_len(cmd_size as usize - 8)?; // TODO: harden
     }
 
     let mut sections: Vec<Section> = Vec::new();
     for cmd in &commands {
         if cmd.kind == LC_SEGMENT_64 {
             let mut s = Stream::new_at(data, cmd.offset, ByteOrder::LittleEndian);
-            s.skip_len(16); // segname
-            s.skip::<u64>(); // vmaddr
-            s.skip::<u64>(); // vmsize
-            s.skip::<u64>(); // fileoff
-            s.skip::<u64>(); // filesize
-            s.skip::<u32>(); // maxprot
-            s.skip::<u32>(); // initprot
+            s.skip_len(16)?; // segname
+            s.skip::<u64>()?; // vmaddr
+            s.skip::<u64>()?; // vmsize
+            s.skip::<u64>()?; // fileoff
+            s.skip::<u64>()?; // filesize
+            s.skip::<u32>()?; // maxprot
+            s.skip::<u32>()?; // initprot
             let sections_count: u32 = s.read();
-            s.skip::<u32>(); // flags
+            s.skip::<u32>()?; // flags
 
             for _ in 0..sections_count {
                 let section_name = parse_null_string(s.read_bytes(16), 0);
@@ -110,11 +110,11 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
                 let address: u64 = s.read();
                 let size: u64 = s.read();
                 let offset: u32 = s.read();
-                s.skip::<u32>(); // align
-                s.skip::<u32>(); // reloff
-                s.skip::<u32>(); // nreloc
-                s.skip::<u32>(); // flags
-                s.skip_len(12); // padding
+                s.skip::<u32>()?; // align
+                s.skip::<u32>()?; // reloff
+                s.skip::<u32>()?; // nreloc
+                s.skip::<u32>()?; // flags
+                s.skip_len(12)?; // padding
 
                 if let (Some(segment), Some(section)) = (segment_name, section_name) {
                     sections.push(Section {
