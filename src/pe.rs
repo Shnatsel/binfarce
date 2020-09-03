@@ -121,7 +121,7 @@ impl Pe<'_> {
         }).cloned()
     }
 
-    pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
+    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let number_of_symbols = self.header.number_of_symbols as usize;
         let mut symbols = Vec::with_capacity(number_of_symbols);
 
@@ -149,7 +149,7 @@ impl Pe<'_> {
             let kind: u16 = s.read();
             let storage_class: u8 = s.read();
             let number_of_aux_symbols: u8 = s.read();
-            s.skip_len(number_of_aux_symbols as usize * COFF_SYMBOL_SIZE); //TODO: harden
+            s.skip_len(number_of_aux_symbols as usize * COFF_SYMBOL_SIZE)?;
     
             if (kind >> IMAGE_SYM_DTYPE_SHIFT) != IMAGE_SYM_DTYPE_FUNCTION {
                 continue;
@@ -199,6 +199,6 @@ impl Pe<'_> {
         // Remove the last symbol, which is `.text` section size.
         symbols.pop();
     
-        (symbols, text_section_size as u64)
+        Ok((symbols, text_section_size as u64))
     }
 }
