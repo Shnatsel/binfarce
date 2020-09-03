@@ -151,7 +151,7 @@ impl <'a> Macho<'a> {
         }).cloned()
     }
 
-    pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
+    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let text_section_index = self.sections.iter().position(|x| {
             x.segment_name == "__TEXT" && x.section_name == "__text"
         });
@@ -173,13 +173,13 @@ impl <'a> Macho<'a> {
             };
     
             let symbols_data = &self.data[symbols_offset as usize..];
-            return (
-                parse_symbols(symbols_data, number_of_symbols, strings, text_section),
+            return Ok((
+                parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
                 text_section.size,
-            );
+            ));
         }
     
-        (Vec::new(), 0)
+        Ok((Vec::new(), 0))
     }
 }
 
@@ -196,14 +196,14 @@ fn parse_symbols(
     count: u32,
     strings: &[u8],
     text_section: Section,
-) -> Vec<SymbolData> {
+) -> Result<Vec<SymbolData>, UnexpectedEof> {
     let mut raw_symbols = Vec::with_capacity(count as usize);
     let mut s = Stream::new(data, ByteOrder::LittleEndian);
     for _ in 0..count {
         let string_index: u32 = s.read();
         let kind: u8 = s.read();
         let section: u8 = s.read();
-        s.skip::<u16>(); // description
+        s.skip::<u16>()?; // description
         let value: u64 = s.read();
 
         if value == 0 {
@@ -280,5 +280,5 @@ fn parse_symbols(
         }
     }
 
-    symbols
+    Ok(symbols)
 }
