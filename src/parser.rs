@@ -1,3 +1,5 @@
+#![deny(clippy::integer_arithmetic)]
+
 use std::{str, mem, convert::TryInto};
 use crate::ByteOrder;
 
