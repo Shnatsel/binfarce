@@ -12,10 +12,6 @@
 // I find this more readable
 #![allow(clippy::skip_while_next)]
 
-// TODO: once all 3 parsers are refactored to return errors,
-// drop this and also make read in parser.rs return an error
-#![allow(unused_must_use)]
-
 pub mod ar;
 pub mod demangle;
 pub mod elf32;
