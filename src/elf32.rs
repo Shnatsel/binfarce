@@ -149,25 +149,24 @@ impl<'a> Elf64<'a> {
         }).cloned()?)
     }
 
-    pub fn symbols(&self) -> (Vec<SymbolData>, u64) {
-        self.extract_symbols().unwrap_or((Vec::new(), 0))
-    }
-
-    fn extract_symbols(&self) -> Option<(Vec<SymbolData>, u64)> {
+    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let data = self.data;
         let sections = &self.sections;
 
-        let text_section = self.section_with_name(".text")?;
-        let symbols_section = sections.iter().find(|v| v.kind == section_type::SYMBOL_TABLE)?;
-        let linked_section = sections.get(symbols_section.link)?;
+        let text_section = self.section_with_name(".text")
+            .ok_or(ParseError::MalformedInput)?;
+        let symbols_section = sections.iter().find(|v| v.kind == section_type::SYMBOL_TABLE)
+            .ok_or(ParseError::MalformedInput)?;
+        let linked_section = sections.get(symbols_section.link)
+            .ok_or(ParseError::MalformedInput)?;
         if linked_section.kind != section_type::STRING_TABLE {
-            return None;
+            return Err(ParseError::MalformedInput);
         }
     
-        let strings = &data[linked_section.range().ok()?];
-        let s = Stream::new(&data[symbols_section.range().ok()?], self.byte_order);
-        let symbols = parse_symbols(s, symbols_section.entries, strings, text_section);
-        Some((symbols, text_section.size.into()))
+        let strings = &data[linked_section.range()?];
+        let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
+        let symbols = parse_symbols(s, symbols_section.entries, strings, text_section)?;
+        Ok((symbols, text_section.size.into()))
     }
 }
 
@@ -176,7 +175,7 @@ fn parse_symbols(
     count: usize,
     strings: &[u8],
     text_section: Section,
-) -> Vec<SymbolData> {
+) -> Result<Vec<SymbolData>, UnexpectedEof> {
     let mut symbols = Vec::with_capacity(count);
     while !s.at_end() {
         // Note: the order of fields in 32 and 64 bit ELF is different.
@@ -184,7 +183,7 @@ fn parse_symbols(
         let value: elf::Address = s.read();
         let size: elf::Word = s.read();
         let info: u8 = s.read();
-        s.skip::<u8>(); // other
+        s.skip::<u8>()?; // other
         let shndx: elf::Half = s.read();
 
         if shndx != text_section.index {
@@ -217,5 +216,5 @@ fn parse_symbols(
         }
     }
 
-    symbols
+    Ok(symbols)
 }
