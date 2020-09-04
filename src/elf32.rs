@@ -1,3 +1,9 @@
+// Prohibit dangerous things we definitely don't want
+#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::cast_possible_truncation)]
+// Style lints
+#![warn(clippy::cast_lossless)]
+
 use std::{convert::TryInto, ops::Range, mem::size_of};
 
 use crate::ByteOrder;
