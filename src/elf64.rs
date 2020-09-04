@@ -95,8 +95,8 @@ impl Section {
         }
     }
 
-    pub fn name<'a>(&self, data: &'a [u8], header: Elf64Header, byte_order: ByteOrder) -> Option<&'a str> {
-        self.__name(data, header, byte_order).unwrap_or(None)
+    pub fn name<'a>(&self, parent: &Elf64<'a>) -> Option<&'a str> {
+        self.__name(parent.data, parent.header, parent.byte_order).unwrap_or(None)
     }
 
     fn __name<'a>(&self, data: &'a [u8], header: Elf64Header, byte_order: ByteOrder) -> Result<Option<&'a str>, ParseError> {
@@ -144,7 +144,7 @@ impl<'a> Elf64<'a> {
 
     pub fn section_with_name(&self, name: &str) -> Result<Option<Section>, ParseError> {
         let callback = |section: Section| {
-            section.name(self.data, self.header, self.byte_order) == Some(name)
+            section.name(self) == Some(name)
         };
         self.find_section(callback)
     }
