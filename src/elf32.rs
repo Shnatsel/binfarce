@@ -69,7 +69,7 @@ pub struct Section {
     link: usize,
     offset: u32,
     size: u32,
-    entries: usize,
+    entries: u32,
 }
 
 fn parse_elf_sections(
@@ -94,8 +94,7 @@ fn parse_elf_sections(
         s.skip::<elf::Word>()?; // addralign
         let entry_size = s.read::<elf::Word>()?;
 
-        // TODO: harden?
-        let entries = if entry_size == 0 { 0 } else { size / entry_size } as usize;
+        let entries = size.checked_div(entry_size).unwrap_or(0);
 
         sections.push(Section {
             index: sections.len() as u16,
@@ -165,7 +164,8 @@ impl<'a> Elf32<'a> {
     
         let strings = &data[linked_section.range()?];
         let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
-        let symbols = parse_symbols(s, symbols_section.entries, strings, text_section)?;
+        let symbols_count: usize = symbols_section.entries.try_into()?;
+        let symbols = parse_symbols(s, symbols_count, strings, text_section)?;
         Ok((symbols, text_section.size.into()))
     }
 }
