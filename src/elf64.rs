@@ -1,4 +1,4 @@
-use std::{convert::TryInto, ops::Range, mem::size_of, cmp::min};
+use std::{convert::TryInto, ops::Range, mem::size_of};
 
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
