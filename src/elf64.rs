@@ -145,6 +145,13 @@ impl<'a> Elf64<'a> {
     }
 
     pub fn section_with_name(&self, name: &str) -> Result<Option<Section>, ParseError> {
+        let callback = |section: Section| {
+            section.name(self.data, self.header, self.byte_order) == Some(name)
+        };
+        self.find_section(callback)
+    }
+
+    pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
         let section_count = self.header.shnum;
         let section_offset: usize = self.header.shoff.try_into()?;
 
@@ -152,8 +159,8 @@ impl<'a> Elf64<'a> {
         for i in 0..section_count {
             let rs = read_section(&mut s)?;
             let section = Section::from_raw(rs, i);
-            if section.name(self.data, self.header, self.byte_order) == Some(name) {
-                return Ok(Some(section))
+            if callback(section) {
+                return Ok(Some(section));
             }
         }
         Ok(None)
