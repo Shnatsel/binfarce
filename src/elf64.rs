@@ -65,49 +65,12 @@ fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, U
 #[derive(Debug, Clone, Copy)]
 pub struct Section {
     index: u16,
-    name: u32,
+    name_offset: u32,
     kind: u32,
     link: usize,
     offset: u64,
     size: u64,
-    entries: u64,
-}
-
-fn parse_elf_sections(
-    data: &[u8],
-    byte_order: ByteOrder,
-    header: &Elf64Header
-) -> Result<Vec<Section>, ParseError> {
-    let count: usize = header.shnum.into();
-    let section_offset: usize = header.shoff.try_into()?;
-    let mut s = Stream::new_at(data, section_offset, byte_order)?;
-    // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
-    let mut sections = Vec::with_capacity(min(count, 1024));
-    while sections.len() < count {
-        let name  = s.read::<elf::Word>()?;
-        let kind  = s.read::<elf::Word>()?;
-        s.skip::<elf::XWord>()?; // flags
-        s.skip::<elf::Address>()?; // addr
-        let offset = s.read::<elf::Offset>()?;
-        let size = s.read::<elf::XWord>()?;
-        let link = s.read::<elf::Word>()? as usize;
-        s.skip::<elf::Word>()?; // info
-        s.skip::<elf::XWord>()?; // addralign
-        let entry_size = s.read::<elf::XWord>()?;
-
-        let entries = size.checked_div(entry_size).unwrap_or(0);
-
-        sections.push(Section {
-            index: sections.len() as u16,
-            name,
-            kind,
-            link,
-            offset,
-            size,
-            entries,
-        });
-    }
-    Ok(sections)
+    entry_size: u64,
 }
 
 impl Section {
@@ -116,19 +79,64 @@ impl Section {
         let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError::MalformedInput)?;
         Ok(start..end)
     }
+
+    pub fn entries(&self) -> u64 {
+        self.size.checked_div(self.entry_size).unwrap_or(0)
+    }
+
+    fn from_raw(rs: RawSection, index: u16) -> Section {
+        Section {
+            index,
+            name_offset: rs.name,
+            kind: rs.kind,
+            link: rs.link as usize,
+            offset: rs.offset,
+            size: rs.size,
+            entry_size: rs.entry_size,
+        }
+    }
+
+    pub fn name<'a>(&self, data: &'a [u8], header: Elf64Header, byte_order: ByteOrder) -> Option<&'a str> {
+        self.__name(data, header, byte_order).unwrap_or(None)
+    }
+
+    fn __name<'a>(&self, data: &'a [u8], header: Elf64Header, byte_order: ByteOrder) -> Result<Option<&'a str>, ParseError> {
+        let section_offset: usize = header.shoff.try_into()?;
+        let mut s = Stream::new_at(data, section_offset, byte_order)?;
+
+        let number_of_section_with_section_names = header.shstrndx;
+        s.skip_len(RAW_SECTION_HEADER_SIZE.checked_mul(number_of_section_with_section_names.into())
+            .ok_or(ParseError::MalformedInput)?)?;
+        let section_with_section_names = Section::from_raw(read_section(&mut s)?, number_of_section_with_section_names);
+        let section_name_strings = &data.get(section_with_section_names.range()?)
+            .ok_or(UnexpectedEof{})?;
+        Ok(parse_null_string(section_name_strings, self.name_offset as usize))
+    }
 }
 
 pub struct Elf64<'a> {
     data: &'a [u8],
     byte_order: ByteOrder,
     header: Elf64Header,
-    sections: Vec<Section>,
+}
+#[derive(Debug, Clone, Copy)]
+struct RawSection {
+    name: elf::Word,
+    kind: elf::Word,
+    flags: elf::XWord,
+    addr: elf::Address,
+    offset: elf::Offset,
+    size: elf::XWord,
+    link: elf::Word,
+    info: elf::Word,
+    addralign: elf::XWord,
+    entry_size: elf::XWord,
 }
 
 pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf64, ParseError> {
     let header = parse_elf_header(data, byte_order)?;
-    let sections = parse_elf_sections(data, byte_order, &header)?;
-    Ok(Elf64 { data, byte_order, header, sections })
+    //let sections = parse_elf_sections(data, byte_order, &header)?;
+    Ok(Elf64 { data, byte_order, header})
 }
 
 impl<'a> Elf64<'a> {
@@ -136,41 +144,57 @@ impl<'a> Elf64<'a> {
         self.header
     }
 
-    pub fn sections(&self) -> Vec<Section> {
-        self.sections.clone()
-    }
+    pub fn section_with_name(&self, name: &str) -> Result<Option<Section>, ParseError> {
+        let section_count = self.header.shnum;
+        let section_offset: usize = self.header.shoff.try_into()?;
 
-    pub fn section_with_name(&self, name: &str) -> Option<Section> {
-        let sections = &self.sections;
-        let section_names_data_range = sections.get(usize::from(self.header.shstrndx))?.range().ok()?;
-        let section_name_strings = &self.data.get(section_names_data_range)?;
-        Some(sections.iter().find(|s| {
-            parse_null_string(section_name_strings, s.name as usize) == Some(name)
-        }).cloned()?)
-    }
-
-    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let data = self.data;
-        let sections = &self.sections;
-
-        let text_section = self.section_with_name(".text")
-            .ok_or(ParseError::MalformedInput)?;
-        let symbols_section = sections.iter().find(|v| v.kind == section_type::SYMBOL_TABLE)
-            .ok_or(ParseError::MalformedInput)?;
-        let linked_section = sections.get(symbols_section.link)
-            .ok_or(ParseError::MalformedInput)?;
-        if linked_section.kind != section_type::STRING_TABLE {
-            return Err(ParseError::MalformedInput);
+        let mut s = Stream::new_at(self.data, section_offset, self.byte_order)?;
+        for i in 0..section_count {
+            let rs = read_section(&mut s)?;
+            let section = Section::from_raw(rs, i);
+            if section.name(self.data, self.header, self.byte_order) == Some(name) {
+                return Ok(Some(section))
+            }
         }
-    
-        let strings = &data[linked_section.range()?];
-        let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
-        let symbols_count: usize = symbols_section.entries.try_into()?;
-        let symbols = parse_symbols(s, symbols_count, strings, text_section)?;
-        Ok((symbols, text_section.size))
+        Ok(None)
     }
+
+    // pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
+    //     let data = self.data;
+    //     let sections = &self.sections;
+
+    //     let text_section = self.section_with_name(".text")
+    //         .ok_or(ParseError::MalformedInput)?;
+    //     let symbols_section = sections.iter().find(|v| v.kind == section_type::SYMBOL_TABLE)
+    //         .ok_or(ParseError::MalformedInput)?;
+    //     let linked_section = sections.get(symbols_section.link)
+    //         .ok_or(ParseError::MalformedInput)?;
+    //     if linked_section.kind != section_type::STRING_TABLE {
+    //         return Err(ParseError::MalformedInput);
+    //     }
+    
+    //     let strings = &data[linked_section.range()?];
+    //     let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
+    //     let symbols_count: usize = symbols_section.entries.try_into()?;
+    //     let symbols = parse_symbols(s, symbols_count, strings, text_section)?;
+    //     Ok((symbols, text_section.size))
+    // }
 }
 
+fn read_section(s: &mut Stream) -> Result<RawSection, UnexpectedEof> {
+    Ok(RawSection {
+        name: s.read()?,
+        kind: s.read()?,
+        flags: s.read()?,
+        addr: s.read()?,
+        offset: s.read()?,
+        size: s.read()?,
+        link: s.read()?,
+        info: s.read()?,
+        addralign: s.read()?,
+        entry_size: s.read()?,
+    })
+}
 
 fn parse_symbols(
     mut s: Stream,
