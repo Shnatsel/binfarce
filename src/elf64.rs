@@ -67,7 +67,7 @@ pub struct Section {
     index: u16,
     name_offset: u32,
     kind: u32,
-    link: usize,
+    link: u32,
     offset: u64,
     size: u64,
     entry_size: u64,
@@ -89,7 +89,7 @@ impl Section {
             index,
             name_offset: rs.name,
             kind: rs.kind,
-            link: rs.link as usize,
+            link: rs.link,
             offset: rs.offset,
             size: rs.size,
             entry_size: rs.entry_size,
@@ -166,26 +166,23 @@ impl<'a> Elf64<'a> {
         Ok(None)
     }
 
-    // pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-    //     let data = self.data;
-    //     let sections = &self.sections;
-
-    //     let text_section = self.section_with_name(".text")
-    //         .ok_or(ParseError::MalformedInput)?;
-    //     let symbols_section = sections.iter().find(|v| v.kind == section_type::SYMBOL_TABLE)
-    //         .ok_or(ParseError::MalformedInput)?;
-    //     let linked_section = sections.get(symbols_section.link)
-    //         .ok_or(ParseError::MalformedInput)?;
-    //     if linked_section.kind != section_type::STRING_TABLE {
-    //         return Err(ParseError::MalformedInput);
-    //     }
+    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
+        let text_section = self.section_with_name(".text")?
+            .ok_or(ParseError::MalformedInput)?;
+        let symbols_section = self.find_section(|v| v.kind == section_type::SYMBOL_TABLE)?
+            .ok_or(ParseError::MalformedInput)?;
+        let linked_section = self.find_section(|v| u32::from(v.index) == symbols_section.link)?
+            .ok_or(ParseError::MalformedInput)?;
+        if linked_section.kind != section_type::STRING_TABLE {
+            return Err(ParseError::MalformedInput);
+        }
     
-    //     let strings = &data[linked_section.range()?];
-    //     let s = Stream::new(&data[symbols_section.range()?], self.byte_order);
-    //     let symbols_count: usize = symbols_section.entries.try_into()?;
-    //     let symbols = parse_symbols(s, symbols_count, strings, text_section)?;
-    //     Ok((symbols, text_section.size))
-    // }
+        let strings = &self.data[linked_section.range()?];
+        let s = Stream::new(&self.data[symbols_section.range()?], self.byte_order);
+        let symbols_count: usize = symbols_section.entries().try_into()?;
+        let symbols = parse_symbols(s, symbols_count, strings, text_section)?;
+        Ok((symbols, text_section.size))
+    }
 }
 
 fn read_section(s: &mut Stream) -> Result<RawSection, UnexpectedEof> {
