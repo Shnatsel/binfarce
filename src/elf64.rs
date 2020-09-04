@@ -134,7 +134,6 @@ struct RawSection {
 
 pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf64, ParseError> {
     let header = parse_elf_header(data, byte_order)?;
-    //let sections = parse_elf_sections(data, byte_order, &header)?;
     Ok(Elf64 { data, byte_order, header})
 }
 
