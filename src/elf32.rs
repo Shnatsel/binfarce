@@ -82,7 +82,7 @@ fn parse_elf_sections(
     let mut s = Stream::new_at(data, section_offset, byte_order)?;
     // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
     let mut sections = Vec::with_capacity(min(count, 1024));
-    while sections.len() < count && s.remaining() >= RAW_SECTION_HEADER_SIZE {
+    while sections.len() < count {
         let name  = s.read::<elf::Word>()?;
         let kind  = s.read::<elf::Word>()?;
         s.skip::<elf::Word>()?; // flags
