@@ -19,8 +19,6 @@ mod section_type {
 }
 
 const RAW_ELF_HEADER_SIZE: usize = size_of::<Elf64Header>();
-const RAW_SECTION_HEADER_SIZE: usize = size_of::<elf::Word>() * 4 +
-    size_of::<elf::XWord>() * 4 + size_of::<elf::Address>() + size_of::<elf::Offset>();
 
 #[derive(Debug, Clone, Copy)]
 pub struct Elf64Header {
