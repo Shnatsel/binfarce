@@ -1,5 +1,8 @@
 // See https://github.com/m4b/goblin/blob/master/src/pe/symbol.rs for details.
 
+// Prohibit dangerous things we definitely don't want
+#![deny(clippy::integer_arithmetic)]
+
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
@@ -90,11 +93,11 @@ impl Pe<'_> {
     }
 
     pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
-        let sections_offset = //TODO: harden
-            self.pe_pointer
-            + SIZEOF_PE_MAGIC
-            + SIZEOF_COFF_HEADER
-            + self.header.size_of_optional_header as usize;
+        let mut sections_offset: usize = 0;
+        // we use a manual loop instead of .sum() to check for overflow
+        for i in &[self.pe_pointer, SIZEOF_PE_MAGIC, SIZEOF_COFF_HEADER, self.header.size_of_optional_header as usize] {
+            sections_offset = sections_offset.checked_add(*i).ok_or(ParseError::MalformedInput)?;
+        }
 
         let mut s = Stream::new_at(self.data, sections_offset, ByteOrder::LittleEndian)?;
         for i in 0..self.header.number_of_sections {
@@ -123,6 +126,10 @@ impl Pe<'_> {
         Ok(None)
     }
 
+    // only used by cargo-bloat which operates on trusted data,
+    // so it's not hardened against malicious inputs
+    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let number_of_symbols = self.header.number_of_symbols as usize;
         let mut symbols = Vec::with_capacity(number_of_symbols);
