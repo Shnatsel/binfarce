@@ -1,3 +1,10 @@
+// Prohibit dangerous things we definitely don't want
+#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::cast_possible_truncation)]
+#![deny(clippy::indexing_slicing)]
+// Style lints
+#![warn(clippy::cast_lossless)]
+
 use std::{str, mem, convert::TryInto};
 use crate::ByteOrder;
 
@@ -156,7 +163,7 @@ impl<'a> Stream<'a> {
 
 pub fn parse_null_string(data: &[u8], start: usize) -> Option<&str> {
     match data.get(start..)?.iter().position(|c| *c == b'\0') {
-        Some(i) if i != 0 => str::from_utf8(&data[start..start.checked_add(i)?]).ok(),
+        Some(i) if i != 0 => str::from_utf8(data.get(start..start.checked_add(i)?)?).ok(),
         _ => None,
     }
 }

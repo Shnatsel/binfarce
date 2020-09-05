@@ -1,9 +1,15 @@
+// Prohibit dangerous things we definitely don't want
+#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::cast_possible_truncation)]
+#![deny(clippy::indexing_slicing)]
+// Style lints
+#![warn(clippy::cast_lossless)]
+
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
 use crate::ParseError;
 
-use std::cmp::min;
 use std::ops::Range;
 use std::convert::TryInto;
 
@@ -50,12 +56,9 @@ pub struct MachoHeader {
 pub struct Macho <'a> {
     data: &'a [u8],
     header: MachoHeader,
-    commands: Vec<Cmd>,
-    sections: Vec<Section<'a>>
 }
 
 fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
-    // TODO: harden
     s.skip::<u32>()?; // magic
     let header = MachoHeader {
         cputype: s.read()?,
@@ -69,98 +72,127 @@ fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
     Ok(header)
 }
 
-pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
-    let mut s = Stream::new(&data, ByteOrder::LittleEndian);
-    let header = parse_macho_header(&mut s).unwrap(); //TODO: harden
-    let number_of_commands = header.ncmds;
+struct MachoCommandsIterator<'a> {
+    stream: Stream<'a>,
+    number_of_commands: u32,
+    commands_already_read: u32,
+    result: Result<(), ParseError>,
+}
 
-    // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
-    let mut commands = Vec::with_capacity(min(number_of_commands, 1024) as usize);
-    for _ in 0..number_of_commands {
-        let cmd: u32 = s.read()?;
-        let cmd_size: u32 = s.read()?;
-
-        commands.push(Cmd {
-            kind: cmd,
-            offset: s.offset(),
-        });
-
-        // cmd_size is a size of a whole command data,
-        // so we have to remove the header size first.
-        s.skip_len(cmd_size as usize - 8)?; // TODO: harden
-    }
-
-    let mut sections: Vec<Section> = Vec::new();
-    for cmd in &commands {
-        if cmd.kind == LC_SEGMENT_64 {
-            let mut s = Stream::new_at(data, cmd.offset, ByteOrder::LittleEndian)?;
-            s.skip_len(16)?; // segname
-            s.skip::<u64>()?; // vmaddr
-            s.skip::<u64>()?; // vmsize
-            s.skip::<u64>()?; // fileoff
-            s.skip::<u64>()?; // filesize
-            s.skip::<u32>()?; // maxprot
-            s.skip::<u32>()?; // initprot
-            let sections_count: u32 = s.read()?;
-            s.skip::<u32>()?; // flags
-
-            for _ in 0..sections_count {
-                let section_name = parse_null_string(s.read_bytes(16)?, 0);
-                let segment_name = parse_null_string(s.read_bytes(16)?, 0);
-                let address: u64 = s.read()?;
-                let size: u64 = s.read()?;
-                let offset: u32 = s.read()?;
-                s.skip::<u32>()?; // align
-                s.skip::<u32>()?; // reloff
-                s.skip::<u32>()?; // nreloc
-                s.skip::<u32>()?; // flags
-                s.skip_len(12)?; // padding
-
-                if let (Some(segment), Some(section)) = (segment_name, section_name) {
-                    sections.push(Section {
-                        segment_name: segment,
-                        section_name: section,
-                        address: address,
-                        offset: offset,
-                        size: size,
-                    });
-                }
+impl Iterator for MachoCommandsIterator<'_> {
+    type Item = Result<Cmd, ParseError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.commands_already_read < self.number_of_commands && self.result.is_ok() {
+            let s = &mut self.stream;
+            let cmd_kind: u32 = s.read().ok()?;
+            let cmd_size: u32 = s.read().ok()?;
+            let item = Cmd {kind: cmd_kind, offset: s.offset()};
+            self.commands_already_read = self.commands_already_read.checked_add(1)?;
+            
+            // cmd_size is a size of a whole command data,
+            // so we have to remove the header size first.
+            let to_skip = (cmd_size as usize).checked_sub(8);
+            // Skip the rest of the command to get to the start of the next one.
+            // If we encounter EOF or if the command size makes no sense,
+            // make the iterator return None from now on.
+            self.result = match to_skip {
+                None => Err(ParseError::MalformedInput),
+                Some(len) => s.skip_len(len).map_err(|_| ParseError::UnexpectedEof),
+            };
+            match self.result {
+                Ok(()) => Some(Ok(item)),
+                Err(err_val) => Some(Err(err_val)),
             }
+        } else {
+            None
         }
     }
+}
+
+pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
+    let mut s = Stream::new(&data, ByteOrder::LittleEndian);
+    let header = parse_macho_header(&mut s)?;
     Ok(Macho{
-        data: data,
-        header: header,
-        commands: commands,
-        sections: sections,
+        data,
+        header,
     })
 }
 
 impl <'a> Macho<'a> {
     pub fn header(&self) -> MachoHeader {
-        self.header.clone()
+        self.header
     }
 
-    pub fn sections(&self) -> Vec<Section> {
-        self.sections.clone()
+    pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
+        for cmd in self.commands() {
+            let cmd = cmd?;
+            if cmd.kind == LC_SEGMENT_64 {
+                let mut s = Stream::new_at(self.data, cmd.offset, ByteOrder::LittleEndian)?;
+                s.skip_len(16)?; // segname
+                s.skip::<u64>()?; // vmaddr
+                s.skip::<u64>()?; // vmsize
+                s.skip::<u64>()?; // fileoff
+                s.skip::<u64>()?; // filesize
+                s.skip::<u32>()?; // maxprot
+                s.skip::<u32>()?; // initprot
+                let sections_count: u32 = s.read()?;
+                s.skip::<u32>()?; // flags
+    
+                for _ in 0..sections_count {
+                    let section_name = parse_null_string(s.read_bytes(16)?, 0);
+                    let segment_name = parse_null_string(s.read_bytes(16)?, 0);
+                    let address: u64 = s.read()?;
+                    let size: u64 = s.read()?;
+                    let offset: u32 = s.read()?;
+                    s.skip::<u32>()?; // align
+                    s.skip::<u32>()?; // reloff
+                    s.skip::<u32>()?; // nreloc
+                    s.skip::<u32>()?; // flags
+                    s.skip_len(12)?; // padding
+    
+                    if let (Some(segment), Some(section)) = (segment_name, section_name) {
+                        let section = Section {
+                            segment_name: segment,
+                            section_name: section,
+                            address,
+                            offset,
+                            size,
+                        };
+                        if callback(section) {
+                            return Ok(Some(section));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
     }
 
-    pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Option<Section> {
-        self.sections.iter().find(|x| {
-            x.segment_name == segment_name && x.section_name == section_name
-        }).cloned()
+    pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Result<Option<Section>, ParseError> {
+        let callback = |section: Section| {
+            section.segment_name == segment_name && section.section_name == section_name
+        };
+        self.find_section(callback)
     }
 
+    fn commands(&self) -> MachoCommandsIterator {
+        let mut s = Stream::new(&self.data, ByteOrder::LittleEndian);
+        let _ = parse_macho_header(&mut s); // skip the header
+        MachoCommandsIterator {
+            stream: s,
+            number_of_commands: self.header.ncmds,
+            commands_already_read: 0,
+            result: Ok(())
+        }
+    }
+
+    #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let text_section_index = self.sections.iter().position(|x| {
-            x.segment_name == "__TEXT" && x.section_name == "__text"
-        });
-        assert!(text_section_index == Some(0), "the __TEXT section must be first");
-        let text_section = self.sections[0];
+        let text_section = self.section_with_name("__TEXT", "__text")?.unwrap();
         assert_ne!(text_section.size, 0);
     
-        if let Some(cmd) = self.commands.iter().find(|v| v.kind == LC_SYMTAB) {
-            let mut s = Stream::new(&self.data[cmd.offset..], ByteOrder::LittleEndian);
+        if let Some(cmd) = self.commands().find(|v| v.unwrap().kind == LC_SYMTAB) {
+            let mut s = Stream::new(&self.data[cmd.unwrap().offset..], ByteOrder::LittleEndian);
             let symbols_offset: u32 = s.read()?;
             let number_of_symbols: u32 = s.read()?;
             let strings_offset: u32 = s.read()?;
@@ -168,7 +200,7 @@ impl <'a> Macho<'a> {
     
             let strings = {
                 let start = strings_offset as usize;
-                let end = start + strings_size as usize;
+                let end = start.checked_add(strings_size as usize).ok_or(ParseError::MalformedInput)?;
                 &self.data[start..end]
             };
     
@@ -191,6 +223,10 @@ struct RawSymbol {
     address: u64,
 }
 
+// only used by cargo-bloat which operates on trusted data,
+// so it's not hardened against malicious inputs
+#[allow(clippy::integer_arithmetic)]
+#[allow(clippy::indexing_slicing)]
 fn parse_symbols(
     data: &[u8],
     count: u32,
