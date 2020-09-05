@@ -14,12 +14,12 @@ This crate is used mostly for sharing code between `cargo-bloat` and `auditable-
  - Highest possible performance. Parsing these things is stupidly cheap as it is.
  - Full format support.
 
-PRs with functionality required for your own tool are welcome as long as they adhere to the above goals and keep existing tools working.
-
-**Feature status:**
+### Feature status
 
 **Header parsing** and **section extraction** are used by both tools. They are zero-allocation and hardened against untrusted inputs. `#[forbid(unsafe_code)]` ensures absence of code execution vulnerabilities. Pedantic clippy lints and fuzzing are used to ensure absence of panics. Absence of heap allocations ensures that it can't exhaust RAM.
 
 **Symbol extraction** is used by `cargo-bloat` only. It allocates unbounded amounts of memory on the heap and may panic given an untrusted input.
+
+PRs with functionality required for your own tool are welcome as long as they adhere to the above goals and keep existing tools working.
 
 _This project was briefly known as "kuduk"._
