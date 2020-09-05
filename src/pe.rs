@@ -2,6 +2,10 @@
 
 // Prohibit dangerous things we definitely don't want
 #![deny(clippy::integer_arithmetic)]
+#![deny(clippy::cast_possible_truncation)]
+#![deny(clippy::indexing_slicing)]
+// Style lints
+#![warn(clippy::cast_lossless)]
 
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
@@ -110,6 +114,7 @@ impl Pe<'_> {
 
             let len = name.iter().position(|c| *c == 0).unwrap_or(8);
             // ignore sections with non-UTF8 names since the spec says they must be UTF-8
+            #[allow(clippy::indexing_slicing)] // we've just checked the length
             if let Ok(name_str) = std::str::from_utf8(&name[0..len]) {
                 let section = Section {
                     name: name_str,
@@ -129,6 +134,7 @@ impl Pe<'_> {
     // only used by cargo-bloat which operates on trusted data,
     // so it's not hardened against malicious inputs
     #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let number_of_symbols = self.header.number_of_symbols as usize;
