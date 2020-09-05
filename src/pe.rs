@@ -113,9 +113,10 @@ impl Pe<'_> {
             s.skip_len(16)?; // other data
 
             let len = name.iter().position(|c| *c == 0).unwrap_or(8);
+            // this slicing operation is infallible, but either clippy or rust-analyzer complain if I just slice
+            let name_slice = name.get(0..len).ok_or(ParseError::MalformedInput)?;
             // ignore sections with non-UTF8 names since the spec says they must be UTF-8
-            #[allow(clippy::indexing_slicing)] // we've just checked the length
-            if let Ok(name_str) = std::str::from_utf8(&name[0..len]) {
+            if let Ok(name_str) = std::str::from_utf8(name_slice) {
                 let section = Section {
                     name: name_str,
                     virtual_size,
