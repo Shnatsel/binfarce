@@ -1,6 +1,7 @@
 // Prohibit dangerous things we definitely don't want
 #![deny(clippy::integer_arithmetic)]
 #![deny(clippy::cast_possible_truncation)]
+#![deny(clippy::indexing_slicing)]
 // Style lints
 #![warn(clippy::cast_lossless)]
 
@@ -185,6 +186,7 @@ impl <'a> Macho<'a> {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let text_section = self.section_with_name("__TEXT", "__text")?.unwrap();
         assert_ne!(text_section.size, 0);
@@ -224,6 +226,7 @@ struct RawSymbol {
 // only used by cargo-bloat which operates on trusted data,
 // so it's not hardened against malicious inputs
 #[allow(clippy::integer_arithmetic)]
+#[allow(clippy::indexing_slicing)]
 fn parse_symbols(
     data: &[u8],
     count: u32,
