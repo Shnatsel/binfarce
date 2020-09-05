@@ -18,4 +18,6 @@ Symbol extraction is used by `cargo-bloat` only. It allocates unbounded amounts 
  - Highest possible performance. Parsing these things is stupidly cheap anyway.
  - Full format support.
 
+ PRs with functionality required for your own tool are welcome as long as they adhere to the above goals and keep existing tools working.
+
 _This project was briefly known as "kuduk"._
