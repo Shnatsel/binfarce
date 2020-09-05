@@ -1,3 +1,9 @@
+// Prohibit dangerous things we definitely don't want
+#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::cast_possible_truncation)]
+// Style lints
+#![warn(clippy::cast_lossless)]
+
 use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
@@ -192,7 +198,7 @@ impl <'a> Macho<'a> {
     
             let strings = {
                 let start = strings_offset as usize;
-                let end = start + strings_size as usize;
+                let end = start.checked_add(strings_size as usize).ok_or(ParseError::MalformedInput)?;
                 &self.data[start..end]
             };
     
@@ -215,6 +221,9 @@ struct RawSymbol {
     address: u64,
 }
 
+// only used by cargo-bloat which operates on trusted data,
+// so it's not hardened against malicious inputs
+#[allow(clippy::integer_arithmetic)]
 fn parse_symbols(
     data: &[u8],
     count: u32,
