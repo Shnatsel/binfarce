@@ -4,7 +4,7 @@ Extremely minimal parser for ELF/PE/Mach-o/ar.
 
 This crate is used mostly for sharing code between `cargo-bloat` and `auditable-extract` crates. It implements just enough features for those tools to work. If you're looking for a fully-featured parser, see [`goblin`](https://crates.io/crates/goblin).
 
-Section extraction is used by both tools. It is is zero-allocation and hardened against untrusted inputs. `#[forbid(unsafe_code)]` ensures absence of code execution vulnerabilities. Pedantic clippy lints and fuzzing are used to ensure absence of panics. Absence of heap allocations ensures you can't exhaust RAM.
+Section extraction is used by both tools. It is is zero-allocation and hardened against untrusted inputs. `#[forbid(unsafe_code)]` ensures absence of code execution vulnerabilities. Pedantic clippy lints and fuzzing are used to ensure absence of panics. Absence of heap allocations ensures that it can't exhaust RAM.
 
 Symbol extraction is used by `cargo-bloat` only. It allocates unbounded amounts of memory on the heap and may panic given an untrusted input.
 
