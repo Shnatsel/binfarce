@@ -50,8 +50,6 @@ pub struct MachoHeader {
 pub struct Macho <'a> {
     data: &'a [u8],
     header: MachoHeader,
-    commands: Vec<Cmd>,
-    sections: Vec<Section<'a>>
 }
 
 fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
@@ -120,65 +118,9 @@ pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let header = parse_macho_header(&mut s)?;
     let number_of_commands = header.ncmds;
 
-    // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
-    let mut commands = Vec::with_capacity(min(number_of_commands, 1024) as usize);
-    for _ in 0..number_of_commands {
-        let cmd: u32 = s.read()?;
-        let cmd_size: u32 = s.read()?;
-
-        commands.push(Cmd {
-            kind: cmd,
-            offset: s.offset(),
-        });
-
-        // cmd_size is a size of a whole command data,
-        // so we have to remove the header size first.
-        s.skip_len(cmd_size as usize - 8)?; // TODO: harden
-    }
-
-    let mut sections: Vec<Section> = Vec::new();
-    for cmd in &commands {
-        if cmd.kind == LC_SEGMENT_64 {
-            let mut s = Stream::new_at(data, cmd.offset, ByteOrder::LittleEndian)?;
-            s.skip_len(16)?; // segname
-            s.skip::<u64>()?; // vmaddr
-            s.skip::<u64>()?; // vmsize
-            s.skip::<u64>()?; // fileoff
-            s.skip::<u64>()?; // filesize
-            s.skip::<u32>()?; // maxprot
-            s.skip::<u32>()?; // initprot
-            let sections_count: u32 = s.read()?;
-            s.skip::<u32>()?; // flags
-
-            for _ in 0..sections_count {
-                let section_name = parse_null_string(s.read_bytes(16)?, 0);
-                let segment_name = parse_null_string(s.read_bytes(16)?, 0);
-                let address: u64 = s.read()?;
-                let size: u64 = s.read()?;
-                let offset: u32 = s.read()?;
-                s.skip::<u32>()?; // align
-                s.skip::<u32>()?; // reloff
-                s.skip::<u32>()?; // nreloc
-                s.skip::<u32>()?; // flags
-                s.skip_len(12)?; // padding
-
-                if let (Some(segment), Some(section)) = (segment_name, section_name) {
-                    sections.push(Section {
-                        segment_name: segment,
-                        section_name: section,
-                        address,
-                        offset,
-                        size,
-                    });
-                }
-            }
-        }
-    }
     Ok(Macho{
         data,
         header,
-        commands,
-        sections,
     })
 }
 
@@ -187,12 +129,51 @@ impl <'a> Macho<'a> {
         self.header
     }
 
-    pub fn sections(&self) -> Vec<Section> {
-        self.sections.clone()
+    pub fn sections(&self) -> Result<Vec<Section>, ParseError> {
+        let mut sections: Vec<Section> = Vec::new();
+        for cmd in self.commands() {
+            let cmd = cmd?;
+            if cmd.kind == LC_SEGMENT_64 {
+                let mut s = Stream::new_at(self.data, cmd.offset, ByteOrder::LittleEndian)?;
+                s.skip_len(16)?; // segname
+                s.skip::<u64>()?; // vmaddr
+                s.skip::<u64>()?; // vmsize
+                s.skip::<u64>()?; // fileoff
+                s.skip::<u64>()?; // filesize
+                s.skip::<u32>()?; // maxprot
+                s.skip::<u32>()?; // initprot
+                let sections_count: u32 = s.read()?;
+                s.skip::<u32>()?; // flags
+    
+                for _ in 0..sections_count {
+                    let section_name = parse_null_string(s.read_bytes(16)?, 0);
+                    let segment_name = parse_null_string(s.read_bytes(16)?, 0);
+                    let address: u64 = s.read()?;
+                    let size: u64 = s.read()?;
+                    let offset: u32 = s.read()?;
+                    s.skip::<u32>()?; // align
+                    s.skip::<u32>()?; // reloff
+                    s.skip::<u32>()?; // nreloc
+                    s.skip::<u32>()?; // flags
+                    s.skip_len(12)?; // padding
+    
+                    if let (Some(segment), Some(section)) = (segment_name, section_name) {
+                        sections.push(Section {
+                            segment_name: segment,
+                            section_name: section,
+                            address,
+                            offset,
+                            size,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(sections)
     }
 
     pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Option<Section> {
-        self.sections.iter().find(|x| {
+        self.sections().ok()?.iter().find(|x| {
             x.segment_name == segment_name && x.section_name == section_name
         }).cloned()
     }
@@ -208,36 +189,36 @@ impl <'a> Macho<'a> {
         }
     }
 
-    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let text_section_index = self.sections.iter().position(|x| {
-            x.segment_name == "__TEXT" && x.section_name == "__text"
-        });
-        assert!(text_section_index == Some(0), "the __TEXT section must be first");
-        let text_section = self.sections[0];
-        assert_ne!(text_section.size, 0);
+    // pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
+    //     let text_section_index = self.sections.iter().position(|x| {
+    //         x.segment_name == "__TEXT" && x.section_name == "__text"
+    //     });
+    //     assert!(text_section_index == Some(0), "the __TEXT section must be first");
+    //     let text_section = self.sections[0];
+    //     assert_ne!(text_section.size, 0);
     
-        if let Some(cmd) = self.commands.iter().find(|v| v.kind == LC_SYMTAB) {
-            let mut s = Stream::new(&self.data[cmd.offset..], ByteOrder::LittleEndian);
-            let symbols_offset: u32 = s.read()?;
-            let number_of_symbols: u32 = s.read()?;
-            let strings_offset: u32 = s.read()?;
-            let strings_size: u32 = s.read()?;
+    //     if let Some(cmd) = self.commands.iter().find(|v| v.kind == LC_SYMTAB) {
+    //         let mut s = Stream::new(&self.data[cmd.offset..], ByteOrder::LittleEndian);
+    //         let symbols_offset: u32 = s.read()?;
+    //         let number_of_symbols: u32 = s.read()?;
+    //         let strings_offset: u32 = s.read()?;
+    //         let strings_size: u32 = s.read()?;
     
-            let strings = {
-                let start = strings_offset as usize;
-                let end = start + strings_size as usize;
-                &self.data[start..end]
-            };
+    //         let strings = {
+    //             let start = strings_offset as usize;
+    //             let end = start + strings_size as usize;
+    //             &self.data[start..end]
+    //         };
     
-            let symbols_data = &self.data[symbols_offset as usize..];
-            return Ok((
-                parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
-                text_section.size,
-            ));
-        }
+    //         let symbols_data = &self.data[symbols_offset as usize..];
+    //         return Ok((
+    //             parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
+    //             text_section.size,
+    //         ));
+    //     }
     
-        Ok((Vec::new(), 0))
-    }
+    //     Ok((Vec::new(), 0))
+    // }
 }
 
 #[derive(Clone, Copy, Debug)]
