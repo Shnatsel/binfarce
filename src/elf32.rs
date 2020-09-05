@@ -1,6 +1,7 @@
 // Prohibit dangerous things we definitely don't want
 #![deny(clippy::integer_arithmetic)]
 #![deny(clippy::cast_possible_truncation)]
+#![deny(clippy::indexing_slicing)]
 // Style lints
 #![warn(clippy::cast_lossless)]
 
