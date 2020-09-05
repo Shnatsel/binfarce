@@ -55,7 +55,6 @@ pub struct Macho <'a> {
 }
 
 fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
-    // TODO: harden
     s.skip::<u32>()?; // magic
     let header = MachoHeader {
         cputype: s.read()?,
@@ -69,9 +68,57 @@ fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
     Ok(header)
 }
 
+struct MachoCommandsIterator<'a> {
+    stream: Stream<'a>,
+    number_of_commands: u32,
+    commands_already_read: u32,
+    result: Result<(), ParseError>,
+}
+
+impl Iterator for MachoCommandsIterator<'_> {
+    type Item = Cmd;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.commands_already_read < self.number_of_commands && self.result.is_ok() {
+            let s = &mut self.stream;
+            let cmd_kind: u32 = s.read().ok()?;
+            let cmd_size: u32 = s.read().ok()?;
+            let item = Cmd {kind: cmd_kind, offset: s.offset()};
+            self.commands_already_read = self.commands_already_read.checked_add(1)?;
+            
+            // cmd_size is a size of a whole command data,
+            // so we have to remove the header size first.
+            let to_skip = (cmd_size as usize).checked_sub(8);
+            // Skip the rest of the command to get to the start of the next one.
+            // If we encounter EOF or if the command size makes no sense,
+            // make the iterator return None from now on.
+            match to_skip {
+                None => self.result = Err(ParseError::MalformedInput),
+                Some(len) => {
+                    let skip_result = s.skip_len(len);
+                    if skip_result.is_err() { self.result = Err(ParseError::UnexpectedEof) };
+                }
+            }
+
+            Some(item)
+        } else {
+            None
+        }
+    }
+}
+
+impl MachoCommandsIterator<'_> {
+    pub fn offset(&self) -> usize {
+        self.stream.offset()
+    }
+
+    pub fn result(&self) -> Result<(), ParseError> {
+        self.result
+    }
+}
+
 pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let mut s = Stream::new(&data, ByteOrder::LittleEndian);
-    let header = parse_macho_header(&mut s).unwrap(); //TODO: harden
+    let header = parse_macho_header(&mut s)?;
     let number_of_commands = header.ncmds;
 
     // Don't preallocate space for more than 1024 entries; it's rare in the wild and may OOM
@@ -149,6 +196,17 @@ impl <'a> Macho<'a> {
         self.sections.iter().find(|x| {
             x.segment_name == segment_name && x.section_name == section_name
         }).cloned()
+    }
+
+    fn commands(&self) -> MachoCommandsIterator {
+        let mut s = Stream::new(&self.data, ByteOrder::LittleEndian);
+        let _ = parse_macho_header(&mut s); // skip the header
+        MachoCommandsIterator {
+            stream: s,
+            number_of_commands: self.header.ncmds,
+            commands_already_read: 0,
+            result: Ok(())
+        }
     }
 
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
