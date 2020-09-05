@@ -116,8 +116,6 @@ impl MachoCommandsIterator<'_> {
 pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let mut s = Stream::new(&data, ByteOrder::LittleEndian);
     let header = parse_macho_header(&mut s)?;
-    let number_of_commands = header.ncmds;
-
     Ok(Macho{
         data,
         header,
@@ -129,8 +127,7 @@ impl <'a> Macho<'a> {
         self.header
     }
 
-    pub fn sections(&self) -> Result<Vec<Section>, ParseError> {
-        let mut sections: Vec<Section> = Vec::new();
+    pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
         for cmd in self.commands() {
             let cmd = cmd?;
             if cmd.kind == LC_SEGMENT_64 {
@@ -158,24 +155,28 @@ impl <'a> Macho<'a> {
                     s.skip_len(12)?; // padding
     
                     if let (Some(segment), Some(section)) = (segment_name, section_name) {
-                        sections.push(Section {
+                        let section = Section {
                             segment_name: segment,
                             section_name: section,
                             address,
                             offset,
                             size,
-                        });
+                        };
+                        if callback(section) {
+                            return Ok(Some(section));
+                        }
                     }
                 }
             }
         }
-        Ok(sections)
+        Ok(None)
     }
 
-    pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Option<Section> {
-        self.sections().ok()?.iter().find(|x| {
-            x.segment_name == segment_name && x.section_name == section_name
-        }).cloned()
+    pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Result<Option<Section>, ParseError> {
+        let callback = |section: Section| {
+            section.segment_name == segment_name && section.section_name == section_name
+        };
+        self.find_section(callback)
     }
 
     fn commands(&self) -> MachoCommandsIterator {
