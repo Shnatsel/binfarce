@@ -30,3 +30,15 @@ name = "elf32"
 path = "fuzz_targets/elf32.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "pe"
+path = "fuzz_targets/pe.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "macho"
+path = "fuzz_targets/macho.rs"
+test = false
+doc = false
