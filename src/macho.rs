@@ -76,7 +76,7 @@ struct MachoCommandsIterator<'a> {
 }
 
 impl Iterator for MachoCommandsIterator<'_> {
-    type Item = Cmd;
+    type Item = Result<Cmd, ParseError>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.commands_already_read < self.number_of_commands && self.result.is_ok() {
             let s = &mut self.stream;
@@ -91,15 +91,14 @@ impl Iterator for MachoCommandsIterator<'_> {
             // Skip the rest of the command to get to the start of the next one.
             // If we encounter EOF or if the command size makes no sense,
             // make the iterator return None from now on.
-            match to_skip {
-                None => self.result = Err(ParseError::MalformedInput),
-                Some(len) => {
-                    let skip_result = s.skip_len(len);
-                    if skip_result.is_err() { self.result = Err(ParseError::UnexpectedEof) };
-                }
+            self.result = match to_skip {
+                None => Err(ParseError::MalformedInput),
+                Some(len) => s.skip_len(len).map_err(|_| ParseError::UnexpectedEof),
+            };
+            match self.result {
+                Ok(()) => Some(Ok(item)),
+                Err(err_val) => Some(Err(err_val)),
             }
-
-            Some(item)
         } else {
             None
         }
