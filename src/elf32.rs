@@ -181,8 +181,11 @@ impl<'a> Elf32<'a> {
             return Err(ParseError::MalformedInput);
         }
     
-        let strings = &self.data[linked_section.range()?];
-        let s = Stream::new(&self.data[symbols_section.range()?], self.byte_order);
+        let strings = self.data.get(linked_section.range()?)
+            .ok_or(ParseError::UnexpectedEof)?;
+        let symbols_data_range = &self.data.get(symbols_section.range()?)
+            .ok_or(ParseError::UnexpectedEof)?;
+        let s = Stream::new(symbols_data_range, self.byte_order);
         let symbols_count: usize = symbols_section.entries().try_into()?;
         let symbols = parse_symbols(s, symbols_count, strings, text_section)?;
         Ok((symbols, text_section.size.into()))
