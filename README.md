@@ -22,6 +22,6 @@ This crate is used mostly for sharing code between `cargo-bloat` and `auditable-
 
 **Symbol extraction** is used by `cargo-bloat` only. It allocates unbounded amounts of memory on the heap and may panic given an untrusted input.
 
-PRs with functionality required for your own tool are welcome as long as they adhere to the above goals and keep existing tools working.
+PRs with functionality required for your own tool are welcome as long as they adhere to the above goals and keep existing tools working. However, you should consider using the full-featured [`goblin`](https://crates.io/crates/goblin) crate instead.
 
 _This project was briefly known as "kuduk"._
