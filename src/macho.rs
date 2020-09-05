@@ -3,7 +3,6 @@ use crate::demangle::SymbolData;
 use crate::parser::*;
 use crate::ParseError;
 
-use std::cmp::min;
 use std::ops::Range;
 use std::convert::TryInto;
 
@@ -190,36 +189,32 @@ impl <'a> Macho<'a> {
         }
     }
 
-    // pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-    //     let text_section_index = self.sections.iter().position(|x| {
-    //         x.segment_name == "__TEXT" && x.section_name == "__text"
-    //     });
-    //     assert!(text_section_index == Some(0), "the __TEXT section must be first");
-    //     let text_section = self.sections[0];
-    //     assert_ne!(text_section.size, 0);
+    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
+        let text_section = self.section_with_name("__TEXT", "__text")?.unwrap();
+        assert_ne!(text_section.size, 0);
     
-    //     if let Some(cmd) = self.commands.iter().find(|v| v.kind == LC_SYMTAB) {
-    //         let mut s = Stream::new(&self.data[cmd.offset..], ByteOrder::LittleEndian);
-    //         let symbols_offset: u32 = s.read()?;
-    //         let number_of_symbols: u32 = s.read()?;
-    //         let strings_offset: u32 = s.read()?;
-    //         let strings_size: u32 = s.read()?;
+        if let Some(cmd) = self.commands().find(|v| v.unwrap().kind == LC_SYMTAB) {
+            let mut s = Stream::new(&self.data[cmd.unwrap().offset..], ByteOrder::LittleEndian);
+            let symbols_offset: u32 = s.read()?;
+            let number_of_symbols: u32 = s.read()?;
+            let strings_offset: u32 = s.read()?;
+            let strings_size: u32 = s.read()?;
     
-    //         let strings = {
-    //             let start = strings_offset as usize;
-    //             let end = start + strings_size as usize;
-    //             &self.data[start..end]
-    //         };
+            let strings = {
+                let start = strings_offset as usize;
+                let end = start + strings_size as usize;
+                &self.data[start..end]
+            };
     
-    //         let symbols_data = &self.data[symbols_offset as usize..];
-    //         return Ok((
-    //             parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
-    //             text_section.size,
-    //         ));
-    //     }
+            let symbols_data = &self.data[symbols_offset as usize..];
+            return Ok((
+                parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
+                text_section.size,
+            ));
+        }
     
-    //     Ok((Vec::new(), 0))
-    // }
+        Ok((Vec::new(), 0))
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
