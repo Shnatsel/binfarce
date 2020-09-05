@@ -102,16 +102,6 @@ impl Iterator for MachoCommandsIterator<'_> {
     }
 }
 
-impl MachoCommandsIterator<'_> {
-    pub fn offset(&self) -> usize {
-        self.stream.offset()
-    }
-
-    pub fn result(&self) -> Result<(), ParseError> {
-        self.result
-    }
-}
-
 pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let mut s = Stream::new(&data, ByteOrder::LittleEndian);
     let header = parse_macho_header(&mut s)?;
