@@ -16,7 +16,7 @@ This crate is used mostly for sharing code between `cargo-bloat` and `auditable-
 
 ### Feature status
 
-**Header parsing** and **section extraction** are used by both tools. They are zero-allocation and hardened against untrusted inputs. `#[forbid(unsafe_code)]` ensures absence of code execution vulnerabilities. Pedantic clippy lints and fuzzing are used to ensure absence of panics. Absence of heap allocations ensures that it can't exhaust RAM.
+**Header parsing** and **section extraction** are used by both tools. They are zero-allocation and hardened against untrusted inputs. `#[forbid(unsafe_code)]` ensures absence of code execution vulnerabilities. Absence of heap allocations ensures that it can't exhaust RAM. Static analysis via opt-in Clippy lints and fuzzing are used to ensure absence of panics.
 
 **Symbol extraction** is used by `cargo-bloat` only. It allocates unbounded amounts of memory on the heap and may panic given an untrusted input.
 
