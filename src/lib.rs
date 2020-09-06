@@ -6,7 +6,7 @@
 //! It implements just enough features for those tools to work.
 //! If you're looking for a fully-featured parser, see [`goblin`](https://crates.io/crates/goblin).
 
-// For legacy code. TODO: stop suppressing these lints
+// Style lints on which pre-existing code disagrees with Clippy
 #![allow(clippy::single_match)]
 #![allow(clippy::while_let_loop)]
 #![allow(clippy::single_char_pattern)]
