@@ -1,7 +1,10 @@
 #![forbid(unsafe_code)]
 
-// TODO: clean up all possible truncations and enable this
-//#![warn(clippy::cast_possible_truncation)]
+//! Extremely minimal parser for ELF/PE/Mach-o/ar.
+//!
+//! This crate is used mostly for sharing code between `cargo-bloat` and `auditable-extract` crates.
+//! It implements just enough features for those tools to work.
+//! If you're looking for a fully-featured parser, see [`goblin`](https://crates.io/crates/goblin).
 
 // For legacy code. TODO: stop suppressing these lints
 #![allow(clippy::single_match)]
