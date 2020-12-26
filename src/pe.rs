@@ -142,10 +142,10 @@ impl Pe<'_> {
         let mut symbols = Vec::with_capacity(number_of_symbols);
 
         let text_section = self.section_with_name(".text")?
-            .ok_or(ParseError::MalformedInput)?;
+            .ok_or(ParseError::SectionIsMissing(".text"))?;
         let text_section_size = text_section.size_of_raw_data;
         let text_section_index = text_section.index;
-    
+
         // Add the .text section size, which will be used
         // to calculate the size of the last symbol.
         symbols.push(SymbolData {
@@ -153,11 +153,11 @@ impl Pe<'_> {
             address: text_section_size.into(),
             size: 0,
         });
-    
-        let mut s = Stream::new_at(self.data, self.header.pointer_to_symbol_table as usize, ByteOrder::LittleEndian).unwrap();
+
+        let mut s = Stream::new_at(self.data, self.header.pointer_to_symbol_table as usize, ByteOrder::LittleEndian)?;
         let symbols_data = s.read_bytes(number_of_symbols * COFF_SYMBOL_SIZE)?;
         let string_table_offset = s.offset();
-    
+
         let mut s = Stream::new(symbols_data, ByteOrder::LittleEndian);
         while !s.at_end() {
             let name = s.read_bytes(8)?;
@@ -167,20 +167,20 @@ impl Pe<'_> {
             let storage_class: u8 = s.read()?;
             let number_of_aux_symbols: u8 = s.read()?;
             s.skip_len(number_of_aux_symbols as usize * COFF_SYMBOL_SIZE)?;
-    
+
             if (kind >> IMAGE_SYM_DTYPE_SHIFT) != IMAGE_SYM_DTYPE_FUNCTION {
                 continue;
             }
-    
+
             if storage_class != IMAGE_SYM_CLASS_EXTERNAL {
                 continue;
             }
-    
+
             // `section_number` starts from 1.
             if section_number - 1 != text_section_index as i16 {
                 continue;
             }
-    
+
             let name = if !name.starts_with(&[0, 0, 0, 0]) {
                 let len = name.iter().position(|c| *c == 0).unwrap_or(8);
                 std::str::from_utf8(&name[0..len]).ok()
@@ -189,7 +189,7 @@ impl Pe<'_> {
                 let name_offset: u32 = s2.read()?;
                 parse_null_string(self.data, string_table_offset + name_offset as usize)
             };
-    
+
             if let Some(s) = name {
                 symbols.push(SymbolData {
                     name: crate::demangle::SymbolName::demangle(s),
@@ -198,10 +198,10 @@ impl Pe<'_> {
                 });
             }
         }
-    
+
         // To find symbol sizes, we have to sort them by address.
         symbols.sort_by_key(|v| v.address);
-    
+
         // PE format doesn't store the symbols size,
         // so we have to calculate it by subtracting an address of the next symbol
         // from the current.
@@ -212,10 +212,10 @@ impl Pe<'_> {
                 symbols[i].size = next_sym.address - curr;
             }
         }
-    
+
         // Remove the last symbol, which is `.text` section size.
         symbols.pop();
-    
+
         Ok((symbols, text_section_size.into()))
     }
 }

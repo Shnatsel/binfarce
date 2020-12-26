@@ -88,7 +88,7 @@ impl Iterator for MachoCommandsIterator<'_> {
             let cmd_size: u32 = s.read().ok()?;
             let item = Cmd {kind: cmd_kind, offset: s.offset()};
             self.commands_already_read = self.commands_already_read.checked_add(1)?;
-            
+
             // cmd_size is a size of a whole command data,
             // so we have to remove the header size first.
             let to_skip = (cmd_size as usize).checked_sub(8);
@@ -137,7 +137,7 @@ impl <'a> Macho<'a> {
                 s.skip::<u32>()?; // initprot
                 let sections_count: u32 = s.read()?;
                 s.skip::<u32>()?; // flags
-    
+
                 for _ in 0..sections_count {
                     let section_name = parse_null_string(s.read_bytes(16)?, 0);
                     let segment_name = parse_null_string(s.read_bytes(16)?, 0);
@@ -149,7 +149,7 @@ impl <'a> Macho<'a> {
                     s.skip::<u32>()?; // nreloc
                     s.skip::<u32>()?; // flags
                     s.skip_len(12)?; // padding
-    
+
                     if let (Some(segment), Some(section)) = (segment_name, section_name) {
                         let section = Section {
                             segment_name: segment,
@@ -188,29 +188,30 @@ impl <'a> Macho<'a> {
 
     #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let text_section = self.section_with_name("__TEXT", "__text")?.unwrap();
+        let text_section = self.section_with_name("__TEXT", "__text")?
+            .ok_or(ParseError::SectionIsMissing("__text"))?;
         assert_ne!(text_section.size, 0);
-    
+
         if let Some(cmd) = self.commands().find(|v| v.unwrap().kind == LC_SYMTAB) {
             let mut s = Stream::new(&self.data[cmd.unwrap().offset..], ByteOrder::LittleEndian);
             let symbols_offset: u32 = s.read()?;
             let number_of_symbols: u32 = s.read()?;
             let strings_offset: u32 = s.read()?;
             let strings_size: u32 = s.read()?;
-    
+
             let strings = {
                 let start = strings_offset as usize;
                 let end = start.checked_add(strings_size as usize).ok_or(ParseError::MalformedInput)?;
                 &self.data[start..end]
             };
-    
+
             let symbols_data = &self.data[symbols_offset as usize..];
             return Ok((
                 parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
                 text_section.size,
             ));
         }
-    
+
         Ok((Vec::new(), 0))
     }
 }
