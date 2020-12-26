@@ -173,15 +173,21 @@ impl<'a> Elf64<'a> {
 
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let text_section = self.section_with_name(".text")?
-            .ok_or(ParseError::MalformedInput)?;
+            .ok_or(ParseError::SectionIsMissing(".text"))?;
+
         let symbols_section = self.find_section(|v| v.kind == section_type::SYMBOL_TABLE)?
-            .ok_or(ParseError::MalformedInput)?;
+            .ok_or(ParseError::SectionIsMissing(".symtab"))?;
+
         let linked_section = self.find_section(|v| u32::from(v.index) == symbols_section.link)?
-            .ok_or(ParseError::MalformedInput)?;
+            .ok_or(ParseError::SectionIsMissing(".strtab"))?;
+
         if linked_section.kind != section_type::STRING_TABLE {
-            return Err(ParseError::MalformedInput);
+            return Err(ParseError::UnexpectedSectionType {
+                expected: section_type::STRING_TABLE,
+                actual: linked_section.kind,
+            });
         }
-    
+
         let strings = self.data.get(linked_section.range()?)
             .ok_or(ParseError::UnexpectedEof)?;
         let symbols_data_range = &self.data.get(symbols_section.range()?)
