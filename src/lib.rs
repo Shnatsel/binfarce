@@ -25,6 +25,7 @@ mod parser;
 mod error;
 
 pub use crate::error::ParseError;
+pub use crate::parser::UnexpectedEof;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ByteOrder {
