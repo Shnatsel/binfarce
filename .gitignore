@@ -1,5 +1,5 @@
 /target/
 **/*.rs.bk
 .idea
-cargo-bloat.iml
+*.iml
 Cargo.lock
