@@ -189,7 +189,7 @@ impl <'a> Macho<'a> {
     #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let text_section = self.section_with_name("__TEXT", "__text")?
-            .ok_or(ParseError::SectionIsMissing("__text"))?;
+            .ok_or(ParseError::SymbolsSectionIsMissing)?;
         assert_ne!(text_section.size, 0);
 
         if let Some(cmd) = self.commands().find(|v| v.unwrap().kind == LC_SYMTAB) {

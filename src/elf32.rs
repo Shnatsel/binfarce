@@ -171,9 +171,9 @@ impl<'a> Elf32<'a> {
         Ok(None)
     }
 
-    pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let text_section = self.section_with_name(".text")?
-            .ok_or(ParseError::SectionIsMissing(".text"))?;
+    pub fn symbols(&self, section_name: &str) -> Result<(Vec<SymbolData>, u64), ParseError> {
+        let text_section = self.section_with_name(section_name)?
+            .ok_or(ParseError::SymbolsSectionIsMissing)?;
 
         let symbols_section = self.find_section(|v| v.kind == section_type::SYMBOL_TABLE)?
             .ok_or(ParseError::SectionIsMissing(".symtab"))?;

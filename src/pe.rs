@@ -142,7 +142,7 @@ impl Pe<'_> {
         let mut symbols = Vec::with_capacity(number_of_symbols);
 
         let text_section = self.section_with_name(".text")?
-            .ok_or(ParseError::SectionIsMissing(".text"))?;
+            .ok_or(ParseError::SymbolsSectionIsMissing)?;
         let text_section_size = text_section.size_of_raw_data;
         let text_section_index = text_section.index;
 

@@ -2,6 +2,7 @@ use std::{fmt::{Debug, Display}, error::Error};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ParseError {
+    SymbolsSectionIsMissing,
     SectionIsMissing(&'static str),
     UnexpectedSectionType { expected: u32, actual: u32 },
     MalformedInput,
@@ -13,6 +14,7 @@ impl Error for ParseError {}
 impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ParseError::SymbolsSectionIsMissing => write!(f, "symbols section is missing"),
             ParseError::SectionIsMissing(name) => write!(f, "section {} is missing", name),
             ParseError::UnexpectedSectionType { expected, actual } =>
                 write!(f, "expected section type {} but found {}", expected, actual),
