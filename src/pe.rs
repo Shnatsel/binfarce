@@ -12,7 +12,7 @@ use crate::parser::*;
 use crate::ByteOrder;
 use crate::ParseError;
 
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::ops::Range;
 
 const PE_POINTER_OFFSET: usize = 0x3c;
@@ -142,14 +142,8 @@ impl Pe<'_> {
         Ok(None)
     }
 
-    // only used by cargo-bloat which operates on trusted data,
-    // so it's not hardened against malicious inputs
-    #[allow(clippy::integer_arithmetic)]
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
         let number_of_symbols = self.header.number_of_symbols as usize;
-        let mut symbols = Vec::with_capacity(number_of_symbols);
 
         let text_section = self
             .section_with_name(".text")?
@@ -157,22 +151,18 @@ impl Pe<'_> {
         let text_section_size = text_section.size_of_raw_data;
         let text_section_index = text_section.index;
 
-        // Add the .text section size, which will be used
-        // to calculate the size of the last symbol.
-        symbols.push(SymbolData {
-            name: crate::demangle::SymbolName::demangle(".text"),
-            address: text_section_size.into(),
-            size: 0,
-        });
+        let table_data = self
+            .data
+            .get(self.header.pointer_to_symbol_table as usize..)
+            .ok_or(ParseError::UnexpectedEof)?;
+        let mut s = Stream::new(table_data, ByteOrder::LittleEndian);
+        let table_size = number_of_symbols
+            .checked_mul(COFF_SYMBOL_SIZE)
+            .ok_or(ParseError::MalformedInput)?;
+        let symbols_data = s.read_bytes(table_size)?;
+        let strings = s.read_bytes(s.remaining())?;
 
-        let mut s = Stream::new_at(
-            self.data,
-            self.header.pointer_to_symbol_table as usize,
-            ByteOrder::LittleEndian,
-        )?;
-        let symbols_data = s.read_bytes(number_of_symbols * COFF_SYMBOL_SIZE)?;
-        let string_table_offset = s.offset();
-
+        let mut symbols = Vec::new();
         let mut s = Stream::new(symbols_data, ByteOrder::LittleEndian);
         while !s.at_end() {
             let name = s.read_bytes(8)?;
@@ -181,7 +171,10 @@ impl Pe<'_> {
             let kind: u16 = s.read()?;
             let storage_class: u8 = s.read()?;
             let number_of_aux_symbols: u8 = s.read()?;
-            s.skip_len(number_of_aux_symbols as usize * COFF_SYMBOL_SIZE)?;
+            let aux_size = usize::from(number_of_aux_symbols)
+                .checked_mul(COFF_SYMBOL_SIZE)
+                .ok_or(ParseError::MalformedInput)?;
+            s.read_bytes(aux_size)?;
 
             if (kind >> IMAGE_SYM_DTYPE_SHIFT) != IMAGE_SYM_DTYPE_FUNCTION {
                 continue;
@@ -192,17 +185,27 @@ impl Pe<'_> {
             }
 
             // `section_number` starts from 1.
-            if section_number - 1 != text_section_index as i16 {
+            let section_index = section_number
+                .checked_sub(1)
+                .and_then(|n| usize::try_from(n).ok());
+            if section_index != Some(text_section_index) {
                 continue;
+            }
+
+            if value > text_section_size {
+                return Err(ParseError::MalformedInput);
             }
 
             let name = if !name.starts_with(&[0, 0, 0, 0]) {
                 let len = name.iter().position(|c| *c == 0).unwrap_or(8);
-                std::str::from_utf8(&name[0..len]).ok()
+                std::str::from_utf8(name.get(..len).ok_or(ParseError::MalformedInput)?).ok()
             } else {
-                let mut s2 = Stream::new(&name[4..], ByteOrder::LittleEndian);
+                let mut s2 = Stream::new(
+                    name.get(4..).ok_or(ParseError::MalformedInput)?,
+                    ByteOrder::LittleEndian,
+                );
                 let name_offset: u32 = s2.read()?;
-                parse_null_string(self.data, string_table_offset + name_offset as usize)
+                parse_null_string(strings, name_offset as usize)
             };
 
             if let Some(s) = name {
@@ -217,19 +220,19 @@ impl Pe<'_> {
         // To find symbol sizes, we have to sort them by address.
         symbols.sort_by_key(|v| v.address);
 
-        // PE format doesn't store the symbols size,
-        // so we have to calculate it by subtracting an address of the next symbol
-        // from the current.
-        for i in 1..symbols.len() {
-            let curr = symbols[i].address;
-            let next_sym = symbols[i..].iter().skip_while(|s| s.address == curr).next();
-            if let Some(next_sym) = next_sym {
-                symbols[i].size = next_sym.address - curr;
+        // Symbols at the same address share the next distinct address. The last
+        // symbol ends at the section boundary, without adding a synthetic entry.
+        let mut last_address = u64::from(text_section_size);
+        let mut next_address = last_address;
+        for symbol in symbols.iter_mut().rev() {
+            if symbol.address != last_address {
+                next_address = last_address;
+                last_address = symbol.address;
             }
+            symbol.size = next_address
+                .checked_sub(symbol.address)
+                .ok_or(ParseError::MalformedInput)?;
         }
-
-        // Remove the last symbol, which is `.text` section size.
-        symbols.pop();
 
         Ok((symbols, text_section_size.into()))
     }

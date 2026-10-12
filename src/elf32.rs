@@ -220,8 +220,7 @@ impl<'a> Elf32<'a> {
             .get(symbols_section.range()?)
             .ok_or(ParseError::UnexpectedEof)?;
         let s = Stream::new(symbols_data_range, self.byte_order);
-        let symbols_count: usize = symbols_section.entries().try_into()?;
-        let symbols = parse_symbols(s, symbols_count, strings, text_section)?;
+        let symbols = parse_symbols(s, strings, text_section)?;
         Ok((symbols, text_section.size.into()))
     }
 }
@@ -243,11 +242,10 @@ fn read_section(s: &mut Stream) -> Result<RawSection, UnexpectedEof> {
 
 fn parse_symbols(
     mut s: Stream,
-    count: usize,
     strings: &[u8],
     text_section: Section,
 ) -> Result<Vec<SymbolData>, UnexpectedEof> {
-    let mut symbols = Vec::with_capacity(count);
+    let mut symbols = Vec::new();
     while !s.at_end() {
         // Note: the order of fields in 32 and 64 bit ELF is different.
         let name_offset = s.read::<elf::Word>()? as usize;
