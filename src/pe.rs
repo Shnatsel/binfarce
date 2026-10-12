@@ -9,7 +9,7 @@
 
 use crate::demangle::SymbolData;
 use crate::parser::*;
-use crate::symbols::SymbolBudget;
+use crate::symbol_budget::SymbolBudget;
 use crate::ByteOrder;
 use crate::ParseError;
 
@@ -210,17 +210,24 @@ impl Pe<'_> {
                 parse_null_string(strings, name_offset as usize)
             };
 
+            let s_offset = s.offset();
             if let Some(s) = name {
-                symbols.push(SymbolData {
-                    name: budget.demangle(s)?,
-                    address: value.into(),
-                    size: 0,
-                });
+                let name = budget.demangle(s)?;
+                budget.push(
+                    &mut symbols,
+                    SymbolData {
+                        name,
+                        address: value.into(),
+                        // Retain table order for aliases during the allocation-free sort.
+                        // This field is replaced with the actual size below.
+                        size: s_offset.try_into()?,
+                    },
+                )?;
             }
         }
 
         // To find symbol sizes, we have to sort them by address.
-        symbols.sort_by_key(|v| v.address);
+        symbols.sort_unstable_by_key(|v| (v.address, v.size));
 
         // Symbols at the same address share the next distinct address. The last
         // symbol ends at the section boundary, without adding a synthetic entry.

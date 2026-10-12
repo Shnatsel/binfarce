@@ -7,7 +7,7 @@
 
 use crate::demangle::SymbolData;
 use crate::parser::*;
-use crate::symbols::SymbolBudget;
+use crate::symbol_budget::SymbolBudget;
 use crate::ByteOrder;
 use crate::ParseError;
 
@@ -215,7 +215,13 @@ impl<'a> Macho<'a> {
                 .get(symbols_offset as usize..)
                 .ok_or(ParseError::UnexpectedEof)?;
             return Ok((
-                parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
+                parse_symbols(
+                    symbols_data,
+                    number_of_symbols,
+                    strings,
+                    text_section,
+                    SymbolBudget::new(),
+                )?,
                 text_section.size,
             ));
         }
@@ -230,6 +236,7 @@ struct RawSymbol {
     kind: u8,
     section: u8,
     address: u64,
+    index: u32,
 }
 
 fn parse_symbols(
@@ -237,6 +244,7 @@ fn parse_symbols(
     count: u32,
     strings: &[u8],
     text_section: Section,
+    mut budget: SymbolBudget,
 ) -> Result<Vec<SymbolData>, ParseError> {
     let mut s = Stream::new(data, ByteOrder::LittleEndian);
     let table_size = (count as usize)
@@ -249,7 +257,7 @@ fn parse_symbols(
         .checked_add(text_section.size)
         .ok_or(ParseError::MalformedInput)?;
     let mut raw_symbols = Vec::new();
-    for _ in 0..count {
+    for index in 0..count {
         let string_index: u32 = s.read()?;
         let kind: u8 = s.read()?;
         let section: u8 = s.read()?;
@@ -260,19 +268,23 @@ fn parse_symbols(
             continue;
         }
 
-        raw_symbols.push(RawSymbol {
-            string_index,
-            kind,
-            section,
-            address: value,
-        });
+        budget.push(
+            &mut raw_symbols,
+            RawSymbol {
+                string_index,
+                kind,
+                section,
+                address: value,
+                index,
+            },
+        )?;
     }
 
     // To find symbol sizes, we have to sort them by address.
-    raw_symbols.sort_by_key(|v| v.address);
+    // Preserve alias order without the scratch allocation of a stable sort.
+    raw_symbols.sort_unstable_by_key(|v| (v.address, v.index));
 
     let mut symbols = Vec::new();
-    let mut budget = SymbolBudget::new();
     // Walk backwards so finding the next distinct address costs constant time,
     // including when thousands of aliases have the same address.
     let mut last_address = text_end;
@@ -318,14 +330,48 @@ fn parse_symbols(
             .ok_or(ParseError::MalformedInput)?;
 
         if let Some(s) = parse_null_string(strings, sym.string_index as usize) {
-            symbols.push(SymbolData {
-                name: budget.demangle(s)?,
-                address: sym.address,
-                size,
-            });
+            let name = budget.demangle(s)?;
+            budget.push(
+                &mut symbols,
+                SymbolData {
+                    name,
+                    address: sym.address,
+                    size,
+                },
+            )?;
         }
     }
 
     symbols.reverse();
     Ok(symbols)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unnamed_symbols_cannot_bypass_the_allocation_budget() {
+        let mut data = Vec::new();
+        for _ in 0..5 {
+            data.extend_from_slice(&[0; 8]); // no name, no section
+            data.extend_from_slice(&1u64.to_le_bytes());
+        }
+        let section = Section {
+            segment_name: "__TEXT",
+            section_name: "__text",
+            address: 1,
+            offset: 0,
+            size: 1,
+        };
+        let budget = SymbolBudget::with_limit(4 * std::mem::size_of::<RawSymbol>());
+        assert!(matches!(
+            parse_symbols(&data, 5, b"", section, budget),
+            Err(ParseError::ResourceLimitExceeded)
+        ));
+        // With enough temporary storage, unnamed symbols are still ignored.
+        assert!(parse_symbols(&data, 5, b"", section, SymbolBudget::new())
+            .unwrap()
+            .is_empty());
+    }
 }

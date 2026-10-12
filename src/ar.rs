@@ -1,7 +1,7 @@
 use std::str;
 
 use crate::parser::*;
-use crate::symbols::SymbolBudget;
+use crate::symbol_budget::SymbolBudget;
 use crate::{ByteOrder, ParseError};
 
 pub fn parse(data: &[u8]) -> Result<Vec<String>, ParseError> {
@@ -77,7 +77,8 @@ fn parse_sysv(data: &[u8]) -> Result<Vec<String>, ParseError> {
     s.read_bytes(offsets_len)?;
     let strings = s.read_bytes(s.remaining())?;
     for name in null_strings(strings).take(count).flatten() {
-        symbols.push(budget.demangle(name)?.complete);
+        let symbol = budget.demangle(name)?.complete;
+        budget.push(&mut symbols, symbol)?;
     }
 
     Ok(symbols)
@@ -94,7 +95,8 @@ fn parse_bsd(data: &[u8]) -> Result<Vec<String>, ParseError> {
     let strings = s.read_bytes(strings_len)?;
 
     for name in null_strings(strings).flatten() {
-        symbols.push(budget.demangle(name)?.complete);
+        let symbol = budget.demangle(name)?.complete;
+        budget.push(&mut symbols, symbol)?;
     }
 
     Ok(symbols)

@@ -9,7 +9,7 @@ use std::{convert::TryInto, mem::size_of, ops::Range};
 
 use crate::demangle::SymbolData;
 use crate::parser::*;
-use crate::symbols::SymbolBudget;
+use crate::symbol_budget::SymbolBudget;
 use crate::ByteOrder;
 use crate::ParseError;
 
@@ -279,11 +279,15 @@ fn parse_symbols(
         }
 
         if let Some(s) = parse_null_string(strings, name_offset) {
-            symbols.push(SymbolData {
-                name: budget.demangle(s)?,
-                address: value.into(),
-                size: size.into(),
-            });
+            let name = budget.demangle(s)?;
+            budget.push(
+                &mut symbols,
+                SymbolData {
+                    name,
+                    address: value.into(),
+                    size: size.into(),
+                },
+            )?;
         }
     }
 
