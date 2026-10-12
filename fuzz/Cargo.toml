@@ -42,3 +42,15 @@ name = "macho"
 path = "fuzz_targets/macho.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "ar"
+path = "fuzz_targets/ar.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "demangle"
+path = "fuzz_targets/demangle.rs"
+test = false
+doc = false
