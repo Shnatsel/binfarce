@@ -8,7 +8,6 @@
 /// - `v0` demangler stores a crate name.
 /// - Updated to Rust 2018.
 /// - Ignore LLVM suffixes.
-
 mod legacy;
 mod v0;
 
@@ -52,9 +51,7 @@ impl SymbolName {
                     kind: Kind::Legacy,
                 }
             }
-            Some(DemangleStyle::V0(ref d)) => {
-                d.demangle()
-            }
+            Some(DemangleStyle::V0(ref d)) => d.demangle(),
             None => {
                 SymbolName {
                     complete: name.to_string(),
@@ -66,7 +63,6 @@ impl SymbolName {
         }
     }
 }
-
 
 /// Representation of a demangled symbol name.
 pub struct Demangle<'a> {
@@ -100,11 +96,9 @@ pub fn demangle(mut s: &str) -> Demangle {
     let llvm = ".llvm.";
     if let Some(i) = s.find(llvm) {
         let candidate = &s[i + llvm.len()..];
-        let all_hex = candidate.chars().all(|c| {
-            match c {
-                'A' ..= 'F' | '0' ..= '9' | '@' => true,
-                _ => false,
-            }
+        let all_hex = candidate.chars().all(|c| match c {
+            'A'..='F' | '0'..='9' | '@' => true,
+            _ => false,
         });
 
         if all_hex {
@@ -152,9 +146,7 @@ fn is_symbol_like(s: &str) -> bool {
 // Copied from the documentation of `char::is_ascii_alphanumeric`
 fn is_ascii_alphanumeric(c: char) -> bool {
     match c {
-        '\u{0041}' ..= '\u{005A}' |
-        '\u{0061}' ..= '\u{007A}' |
-        '\u{0030}' ..= '\u{0039}' => true,
+        '\u{0041}'..='\u{005A}' | '\u{0061}'..='\u{007A}' | '\u{0030}'..='\u{0039}' => true,
         _ => false,
     }
 }
@@ -162,10 +154,10 @@ fn is_ascii_alphanumeric(c: char) -> bool {
 // Copied from the documentation of `char::is_ascii_punctuation`
 fn is_ascii_punctuation(c: char) -> bool {
     match c {
-        '\u{0021}' ..= '\u{002F}' |
-        '\u{003A}' ..= '\u{0040}' |
-        '\u{005B}' ..= '\u{0060}' |
-        '\u{007B}' ..= '\u{007E}' => true,
+        '\u{0021}'..='\u{002F}'
+        | '\u{003A}'..='\u{0040}'
+        | '\u{005B}'..='\u{0060}'
+        | '\u{007B}'..='\u{007E}' => true,
         _ => false,
     }
 }

@@ -5,13 +5,13 @@
 // Style lints
 #![warn(clippy::cast_lossless)]
 
-use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::ByteOrder;
 use crate::ParseError;
 
-use std::ops::Range;
 use std::convert::TryInto;
+use std::ops::Range;
 
 const LC_SYMTAB: u32 = 0x2;
 const LC_SEGMENT_64: u32 = 0x19;
@@ -23,7 +23,7 @@ struct Cmd {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Section <'a> {
+pub struct Section<'a> {
     segment_name: &'a str,
     section_name: &'a str,
     address: u64,
@@ -31,10 +31,12 @@ pub struct Section <'a> {
     size: u64,
 }
 
-impl Section <'_> {
+impl Section<'_> {
     pub fn range(&self) -> Result<Range<usize>, ParseError> {
         let start: usize = self.offset.try_into()?;
-        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError::MalformedInput)?;
+        let end: usize = start
+            .checked_add(self.size.try_into()?)
+            .ok_or(ParseError::MalformedInput)?;
         Ok(start..end)
     }
 }
@@ -53,7 +55,7 @@ pub struct MachoHeader {
 }
 
 #[derive(Debug, Clone)]
-pub struct Macho <'a> {
+pub struct Macho<'a> {
     data: &'a [u8],
     header: MachoHeader,
 }
@@ -86,7 +88,10 @@ impl Iterator for MachoCommandsIterator<'_> {
             let s = &mut self.stream;
             let cmd_kind: u32 = s.read().ok()?;
             let cmd_size: u32 = s.read().ok()?;
-            let item = Cmd {kind: cmd_kind, offset: s.offset()};
+            let item = Cmd {
+                kind: cmd_kind,
+                offset: s.offset(),
+            };
             self.commands_already_read = self.commands_already_read.checked_add(1)?;
 
             // cmd_size is a size of a whole command data,
@@ -112,18 +117,18 @@ impl Iterator for MachoCommandsIterator<'_> {
 pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let mut s = Stream::new(&data, ByteOrder::LittleEndian);
     let header = parse_macho_header(&mut s)?;
-    Ok(Macho{
-        data,
-        header,
-    })
+    Ok(Macho { data, header })
 }
 
-impl <'a> Macho<'a> {
+impl<'a> Macho<'a> {
     pub fn header(&self) -> MachoHeader {
         self.header
     }
 
-    pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
+    pub fn find_section<F: Fn(Section) -> bool>(
+        &self,
+        callback: F,
+    ) -> Result<Option<Section>, ParseError> {
         for cmd in self.commands() {
             let cmd = cmd?;
             if cmd.kind == LC_SEGMENT_64 {
@@ -168,7 +173,11 @@ impl <'a> Macho<'a> {
         Ok(None)
     }
 
-    pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Result<Option<Section>, ParseError> {
+    pub fn section_with_name(
+        &self,
+        segment_name: &str,
+        section_name: &str,
+    ) -> Result<Option<Section>, ParseError> {
         let callback = |section: Section| {
             section.segment_name == segment_name && section.section_name == section_name
         };
@@ -182,13 +191,14 @@ impl <'a> Macho<'a> {
             stream: s,
             number_of_commands: self.header.ncmds,
             commands_already_read: 0,
-            result: Ok(())
+            result: Ok(()),
         }
     }
 
     #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let text_section = self.section_with_name("__TEXT", "__text")?
+        let text_section = self
+            .section_with_name("__TEXT", "__text")?
             .ok_or(ParseError::SymbolsSectionIsMissing)?;
         assert_ne!(text_section.size, 0);
 
@@ -201,7 +211,9 @@ impl <'a> Macho<'a> {
 
             let strings = {
                 let start = strings_offset as usize;
-                let end = start.checked_add(strings_size as usize).ok_or(ParseError::MalformedInput)?;
+                let end = start
+                    .checked_add(strings_size as usize)
+                    .ok_or(ParseError::MalformedInput)?;
                 &self.data[start..end]
             };
 
@@ -275,9 +287,9 @@ fn parse_symbols(
             continue;
         }
 
-        const N_TYPE: u8   = 0x0E;
+        const N_TYPE: u8 = 0x0E;
         const INDIRECT: u8 = 0xA;
-        const SECTION: u8  = 0xE;
+        const SECTION: u8 = 0xE;
 
         let sub_type = sym.kind & N_TYPE;
 
@@ -302,7 +314,10 @@ fn parse_symbols(
         // from the current.
         // Next symbol can have the same address as the current one,
         // so we have to find the one that has a different address.
-        let next_sym = raw_symbols[i..].iter().skip_while(|s| s.address == sym.address).next();
+        let next_sym = raw_symbols[i..]
+            .iter()
+            .skip_while(|s| s.address == sym.address)
+            .next();
         let size = match next_sym {
             Some(next) => next.address - sym.address,
             None => continue,

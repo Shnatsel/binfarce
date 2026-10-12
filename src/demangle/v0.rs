@@ -55,9 +55,7 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), Invalid> {
         _ => {}
     }
 
-    Ok((Demangle {
-        inner,
-    }, &parser.sym[parser.next..]))
+    Ok((Demangle { inner }, &parser.sym[parser.next..]))
 }
 
 impl Demangle<'_> {
@@ -119,10 +117,7 @@ impl<'s> Ident<'s> {
     /// Attempt to decode punycode on the stack (allocation-free),
     /// and pass the char slice to the closure, if successful.
     /// This supports up to `SMALL_PUNYCODE_LEN` characters.
-    fn try_small_punycode_decode<F: FnOnce(&[char]) -> R, R>(
-        &self,
-        f: F,
-    ) -> Option<R> {
+    fn try_small_punycode_decode<F: FnOnce(&[char]) -> R, R>(&self, f: F) -> Option<R> {
         let mut out = ['\0'; SMALL_PUNYCODE_LEN];
         let mut out_len = 0;
         let r = self.punycode_decode(|i, c| {
@@ -186,7 +181,7 @@ impl<'s> Ident<'s> {
             let mut w = 1;
             let mut k: usize = 0;
             loop {
-                use core::cmp::{min, max};
+                use core::cmp::{max, min};
 
                 k += base;
                 let t = min(max(k.saturating_sub(bias), t_min), t_max);
@@ -197,9 +192,7 @@ impl<'s> Ident<'s> {
                     _ => return Err(()),
                 };
                 let d = d as usize;
-                delta = delta.checked_add(
-                    d.checked_mul(w).ok_or(())?
-                ).ok_or(())?;
+                delta = delta.checked_add(d.checked_mul(w).ok_or(())?).ok_or(())?;
                 if d < t {
                     break;
                 }
@@ -250,7 +243,8 @@ impl<'s> Display for Ident<'s> {
                 c.fmt(f)?;
             }
             Ok(())
-        }).unwrap_or_else(|| {
+        })
+        .unwrap_or_else(|| {
             if !self.punycode.is_empty() {
                 f.write_str("punycode{")?;
 
@@ -520,9 +514,11 @@ impl<'s> Parser<'s> {
                 self.skip_type()?;
                 self.skip_const()?;
             }
-            b'T' => while !self.eat(b'E') {
-                self.skip_type()?;
-            },
+            b'T' => {
+                while !self.eat(b'E') {
+                    self.skip_type()?;
+                }
+            }
             b'F' => {
                 let _binder = self.opt_integer_62(b'G')?;
                 let _is_unsafe = self.eat(b'U');
@@ -604,7 +600,7 @@ macro_rules! invalid {
         $printer.parser = Err(Invalid);
         $printer.out.push('?');
         return Ok(());
-    }}
+    }};
 }
 
 /// Call a parser method (if the parser hasn't errored yet),
@@ -671,7 +667,8 @@ impl<'a, 's> Printer<'a, 's> {
     /// printing e.g. `for<'a, 'b> ` before calling the closure,
     /// and make those lifetimes visible to it (via depth level).
     fn in_binder<F>(&mut self, f: F) -> fmt::Result
-        where F: FnOnce(&mut Self) -> fmt::Result,
+    where
+        F: FnOnce(&mut Self) -> fmt::Result,
     {
         let bound_lifetimes = parse!(self, opt_integer_62(b'G'));
 
@@ -699,7 +696,8 @@ impl<'a, 's> Printer<'a, 's> {
     /// until the end of the list ('E') is found, or the parser errors.
     /// Returns the number of elements printed.
     fn print_sep_list<F>(&mut self, f: F, sep: &str) -> Result<usize, fmt::Error>
-        where F: Fn(&mut Self) -> fmt::Result,
+    where
+        F: Fn(&mut Self) -> fmt::Result,
     {
         let mut i = 0;
         while self.parser.is_ok() && !self.eat(b'E') {
@@ -995,13 +993,10 @@ impl<'a, 's> Printer<'a, 's> {
         let ty_tag = parse!(self, next);
         let ty = match ty_tag {
             // Unsigned integer types.
-            b'h' | b't' | b'm' | b'y' | b'o' | b'j' => {
-                basic_type(ty_tag).unwrap()
-            }
+            b'h' | b't' | b'm' | b'y' | b'o' | b'j' => basic_type(ty_tag).unwrap(),
 
             _ => invalid!(self),
         };
-
 
         if self.eat(b'p') {
             self.out.write_str("_")?;
@@ -1038,22 +1033,19 @@ mod tests {
     use crate::demangle::SymbolName;
 
     macro_rules! t_nohash {
-        ($a:expr, $b:expr) => ({
+        ($a:expr, $b:expr) => {{
             assert_eq!(SymbolName::demangle($a).trimmed, $b);
-        })
+        }};
     }
     macro_rules! t_nohash_type {
-        ($a:expr, $b:expr) => (
+        ($a:expr, $b:expr) => {
             t_nohash!(concat!("_RMC0", $a), concat!("<", $b, ">"))
-        )
+        };
     }
 
     #[test]
     fn demangle_crate_with_leading_digit() {
-        t_nohash!(
-            "_RNvC6_123foo3bar",
-            "123foo::bar"
-        );
+        t_nohash!("_RNvC6_123foo3bar", "123foo::bar");
     }
 
     #[test]

@@ -5,8 +5,8 @@
 // Style lints
 #![warn(clippy::cast_lossless)]
 
-use std::{str, mem, convert::TryInto};
 use crate::ByteOrder;
+use std::{convert::TryInto, mem, str};
 
 #[derive(Debug, Copy, Clone)]
 pub struct UnexpectedEof {}
@@ -101,7 +101,11 @@ impl<'a> Stream<'a> {
     }
 
     #[inline]
-    pub fn new_at(data: &'a [u8], offset: usize, byte_order: ByteOrder) -> Result<Self, UnexpectedEof> {
+    pub fn new_at(
+        data: &'a [u8],
+        offset: usize,
+        byte_order: ByteOrder,
+    ) -> Result<Self, UnexpectedEof> {
         if offset < data.len() {
             Ok(Stream {
                 data,
@@ -109,7 +113,7 @@ impl<'a> Stream<'a> {
                 byte_order,
             })
         } else {
-            Err(UnexpectedEof{})
+            Err(UnexpectedEof {})
         }
     }
 
@@ -132,25 +136,32 @@ impl<'a> Stream<'a> {
     pub fn skip_len(&mut self, len: usize) -> Result<(), UnexpectedEof> {
         let new_offset = self.offset.checked_add(len);
         match new_offset {
-            Some(valid_offset) => {self.offset = valid_offset; Ok(())}
-            None => {Err(UnexpectedEof{})}
+            Some(valid_offset) => {
+                self.offset = valid_offset;
+                Ok(())
+            }
+            None => Err(UnexpectedEof {}),
         }
     }
 
     #[inline]
     pub fn read<T: RawNumber>(&mut self) -> Result<T, UnexpectedEof> {
-        let new_offset = self.offset.checked_add(mem::size_of::<T>()).ok_or(UnexpectedEof{})?;
-        let v = T::parse(self).ok_or(UnexpectedEof{})?;
+        let new_offset = self
+            .offset
+            .checked_add(mem::size_of::<T>())
+            .ok_or(UnexpectedEof {})?;
+        let v = T::parse(self).ok_or(UnexpectedEof {})?;
         self.offset = new_offset;
         Ok(v)
     }
 
     #[inline]
     pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], UnexpectedEof> {
-        let new_offset = self.offset.checked_add(len)
-            .ok_or(UnexpectedEof{})?;
-        let bytes = &self.data.get(self.offset..new_offset)
-            .ok_or(UnexpectedEof{})?;
+        let new_offset = self.offset.checked_add(len).ok_or(UnexpectedEof {})?;
+        let bytes = &self
+            .data
+            .get(self.offset..new_offset)
+            .ok_or(UnexpectedEof {})?;
         self.offset = new_offset;
         Ok(bytes)
     }

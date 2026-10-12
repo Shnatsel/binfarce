@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- `ar::parse` is now hardened against malformed input and will no longer panic on certain inputs. It now returns `ParseError` instead of `UnexpectedEof` as the error type.
+- ar: Bound BSD extended names to their archive member and handle trailing member padding.
+
 ## [0.2.2] - 2026-09-17
 ### Fixed
 - Fixed parsing on big-endian hosts.

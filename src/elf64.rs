@@ -5,11 +5,11 @@
 // Style lints
 #![warn(clippy::cast_lossless)]
 
-use std::{convert::TryInto, ops::Range, mem::size_of};
+use std::{convert::TryInto, mem::size_of, ops::Range};
 
-use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::ByteOrder;
 use crate::ParseError;
 
 mod elf {
@@ -46,7 +46,7 @@ pub struct Elf64Header {
 }
 
 fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, UnexpectedEof> {
-    let mut s = Stream::new(&data.get(16..).ok_or(UnexpectedEof{})?, byte_order);
+    let mut s = Stream::new(&data.get(16..).ok_or(UnexpectedEof {})?, byte_order);
     if s.remaining() >= RAW_ELF_HEADER_SIZE {
         Ok(Elf64Header {
             elf_type: s.read()?,
@@ -66,7 +66,6 @@ fn parse_elf_header(data: &[u8], byte_order: ByteOrder) -> Result<Elf64Header, U
     } else {
         Err(UnexpectedEof {})
     }
-
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Section {
@@ -82,7 +81,9 @@ pub struct Section {
 impl Section {
     pub fn range(&self) -> Result<Range<usize>, ParseError> {
         let start: usize = self.offset.try_into()?;
-        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError::MalformedInput)?;
+        let end: usize = start
+            .checked_add(self.size.try_into()?)
+            .ok_or(ParseError::MalformedInput)?;
         Ok(start..end)
     }
 
@@ -103,20 +104,34 @@ impl Section {
     }
 
     pub fn name<'a>(&self, parent: &Elf64<'a>) -> Option<&'a str> {
-        self.__name(parent.data, parent.header, parent.byte_order).unwrap_or(None)
+        self.__name(parent.data, parent.header, parent.byte_order)
+            .unwrap_or(None)
     }
 
-    fn __name<'a>(&self, data: &'a [u8], header: Elf64Header, byte_order: ByteOrder) -> Result<Option<&'a str>, ParseError> {
+    fn __name<'a>(
+        &self,
+        data: &'a [u8],
+        header: Elf64Header,
+        byte_order: ByteOrder,
+    ) -> Result<Option<&'a str>, ParseError> {
         let section_offset: usize = header.shoff.try_into()?;
         let mut s = Stream::new_at(data, section_offset, byte_order)?;
 
         let number_of_section_with_section_names = header.shstrndx;
-        s.skip_len(RAW_SECTION_HEADER_SIZE.checked_mul(number_of_section_with_section_names.into())
-            .ok_or(ParseError::MalformedInput)?)?;
-        let section_with_section_names = Section::from_raw(read_section(&mut s)?, number_of_section_with_section_names);
-        let section_name_strings = &data.get(section_with_section_names.range()?)
-            .ok_or(UnexpectedEof{})?;
-        Ok(parse_null_string(section_name_strings, self.name_offset as usize))
+        s.skip_len(
+            RAW_SECTION_HEADER_SIZE
+                .checked_mul(number_of_section_with_section_names.into())
+                .ok_or(ParseError::MalformedInput)?,
+        )?;
+        let section_with_section_names =
+            Section::from_raw(read_section(&mut s)?, number_of_section_with_section_names);
+        let section_name_strings = &data
+            .get(section_with_section_names.range()?)
+            .ok_or(UnexpectedEof {})?;
+        Ok(parse_null_string(
+            section_name_strings,
+            self.name_offset as usize,
+        ))
     }
 }
 
@@ -141,7 +156,11 @@ struct RawSection {
 
 pub fn parse(data: &[u8], byte_order: ByteOrder) -> Result<Elf64, ParseError> {
     let header = parse_elf_header(data, byte_order)?;
-    Ok(Elf64 { data, byte_order, header})
+    Ok(Elf64 {
+        data,
+        byte_order,
+        header,
+    })
 }
 
 impl<'a> Elf64<'a> {
@@ -150,13 +169,14 @@ impl<'a> Elf64<'a> {
     }
 
     pub fn section_with_name(&self, name: &str) -> Result<Option<Section>, ParseError> {
-        let callback = |section: Section| {
-            section.name(self) == Some(name)
-        };
+        let callback = |section: Section| section.name(self) == Some(name);
         self.find_section(callback)
     }
 
-    pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
+    pub fn find_section<F: Fn(Section) -> bool>(
+        &self,
+        callback: F,
+    ) -> Result<Option<Section>, ParseError> {
         let section_count = self.header.shnum;
         let section_offset: usize = self.header.shoff.try_into()?;
 
@@ -172,13 +192,16 @@ impl<'a> Elf64<'a> {
     }
 
     pub fn symbols(&self, section_name: &str) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let text_section = self.section_with_name(section_name)?
+        let text_section = self
+            .section_with_name(section_name)?
             .ok_or(ParseError::SymbolsSectionIsMissing)?;
 
-        let symbols_section = self.find_section(|v| v.kind == section_type::SYMBOL_TABLE)?
+        let symbols_section = self
+            .find_section(|v| v.kind == section_type::SYMBOL_TABLE)?
             .ok_or(ParseError::SectionIsMissing(".symtab"))?;
 
-        let linked_section = self.find_section(|v| u32::from(v.index) == symbols_section.link)?
+        let linked_section = self
+            .find_section(|v| u32::from(v.index) == symbols_section.link)?
             .ok_or(ParseError::SectionIsMissing(".strtab"))?;
 
         if linked_section.kind != section_type::STRING_TABLE {
@@ -188,9 +211,13 @@ impl<'a> Elf64<'a> {
             });
         }
 
-        let strings = self.data.get(linked_section.range()?)
+        let strings = self
+            .data
+            .get(linked_section.range()?)
             .ok_or(ParseError::UnexpectedEof)?;
-        let symbols_data_range = &self.data.get(symbols_section.range()?)
+        let symbols_data_range = &self
+            .data
+            .get(symbols_section.range()?)
             .ok_or(ParseError::UnexpectedEof)?;
         let s = Stream::new(symbols_data_range, self.byte_order);
         let symbols_count: usize = symbols_section.entries().try_into()?;

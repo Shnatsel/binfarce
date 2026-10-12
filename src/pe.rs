@@ -7,13 +7,13 @@
 // Style lints
 #![warn(clippy::cast_lossless)]
 
-use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::ByteOrder;
 use crate::ParseError;
 
-use std::ops::Range;
 use std::convert::TryInto;
+use std::ops::Range;
 
 const PE_POINTER_OFFSET: usize = 0x3c;
 const COFF_SYMBOL_SIZE: usize = 18;
@@ -39,13 +39,15 @@ pub struct Section<'a> {
     virtual_size: u32,
     size_of_raw_data: u32,
     pointer_to_raw_data: u32,
-    index: usize
+    index: usize,
 }
 
-impl Section <'_> {
+impl Section<'_> {
     pub fn range(&self) -> Result<Range<usize>, ParseError> {
         let start: usize = self.pointer_to_raw_data.try_into()?;
-        let end: usize = start.checked_add(self.size_of_raw_data.try_into()?).ok_or(ParseError::MalformedInput)?;
+        let end: usize = start
+            .checked_add(self.size_of_raw_data.try_into()?)
+            .ok_or(ParseError::MalformedInput)?;
         Ok(start..end)
     }
 }
@@ -90,17 +92,25 @@ impl Pe<'_> {
     }
 
     pub fn section_with_name(&self, name: &str) -> Result<Option<Section>, ParseError> {
-        let callback = |section: Section| {
-            section.name == name
-        };
+        let callback = |section: Section| section.name == name;
         self.find_section(callback)
     }
 
-    pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
+    pub fn find_section<F: Fn(Section) -> bool>(
+        &self,
+        callback: F,
+    ) -> Result<Option<Section>, ParseError> {
         let mut sections_offset: usize = 0;
         // we use a manual loop instead of .sum() to check for overflow
-        for i in &[self.pe_pointer, SIZEOF_PE_MAGIC, SIZEOF_COFF_HEADER, self.header.size_of_optional_header as usize] {
-            sections_offset = sections_offset.checked_add(*i).ok_or(ParseError::MalformedInput)?;
+        for i in &[
+            self.pe_pointer,
+            SIZEOF_PE_MAGIC,
+            SIZEOF_COFF_HEADER,
+            self.header.size_of_optional_header as usize,
+        ] {
+            sections_offset = sections_offset
+                .checked_add(*i)
+                .ok_or(ParseError::MalformedInput)?;
         }
 
         let mut s = Stream::new_at(self.data, sections_offset, ByteOrder::LittleEndian)?;
@@ -141,7 +151,8 @@ impl Pe<'_> {
         let number_of_symbols = self.header.number_of_symbols as usize;
         let mut symbols = Vec::with_capacity(number_of_symbols);
 
-        let text_section = self.section_with_name(".text")?
+        let text_section = self
+            .section_with_name(".text")?
             .ok_or(ParseError::SymbolsSectionIsMissing)?;
         let text_section_size = text_section.size_of_raw_data;
         let text_section_index = text_section.index;
@@ -154,7 +165,11 @@ impl Pe<'_> {
             size: 0,
         });
 
-        let mut s = Stream::new_at(self.data, self.header.pointer_to_symbol_table as usize, ByteOrder::LittleEndian)?;
+        let mut s = Stream::new_at(
+            self.data,
+            self.header.pointer_to_symbol_table as usize,
+            ByteOrder::LittleEndian,
+        )?;
         let symbols_data = s.read_bytes(number_of_symbols * COFF_SYMBOL_SIZE)?;
         let string_table_offset = s.offset();
 

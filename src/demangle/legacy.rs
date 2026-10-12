@@ -78,7 +78,8 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), ()> {
         }
         let mut len = 0usize;
         while let Some(d) = c.to_digit(10) {
-            len = len.checked_mul(10)
+            len = len
+                .checked_mul(10)
                 .and_then(|len| len.checked_add(d as usize))
                 .ok_or(())?;
             c = chars.next().ok_or(())?;
@@ -93,10 +94,7 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), ()> {
         elements += 1;
     }
 
-    Ok((Demangle {
-        inner,
-        elements,
-    }, chars.as_str()))
+    Ok((Demangle { inner, elements }, chars.as_str()))
 }
 
 // Rust hashes are hex digits with an `h` prepended.
@@ -118,7 +116,7 @@ impl<'a> fmt::Display for Demangle<'a> {
             rest = &rest[..i];
             // Skip printing the hash if alternate formatting
             // was requested.
-            if f.alternate() && element+1 == self.elements && is_rust_hash(&rest) {
+            if f.alternate() && element + 1 == self.elements && is_rust_hash(&rest) {
                 break;
             }
             if element != 0 {
@@ -161,7 +159,8 @@ impl<'a> fmt::Display for Demangle<'a> {
                                     '0'..='9' | 'a'..='f' => true,
                                     _ => false,
                                 });
-                                let c = u32::from_str_radix(digits, 16).ok()
+                                let c = u32::from_str_radix(digits, 16)
+                                    .ok()
                                     .and_then(char::from_u32);
                                 if let (true, Some(c)) = (all_lower_hex, c) {
                                     // FIXME(eddyb) do we need to filter out control codepoints?
