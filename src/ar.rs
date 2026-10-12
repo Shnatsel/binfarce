@@ -1,7 +1,7 @@
 use std::str;
 
-use crate::demangle::SymbolName;
 use crate::parser::*;
+use crate::symbols::SymbolBudget;
 use crate::{ByteOrder, ParseError};
 
 pub fn parse(data: &[u8]) -> Result<Vec<String>, ParseError> {
@@ -56,17 +56,18 @@ pub fn parse(data: &[u8]) -> Result<Vec<String>, ParseError> {
         }
 
         if name.is_empty() && identifier == "/               " {
-            return Ok(parse_sysv(contents)?);
+            return parse_sysv(contents);
         } else if name == "__.SYMDEF" {
-            return Ok(parse_bsd(contents)?);
+            return parse_bsd(contents);
         }
     }
 
     Ok(Vec::new())
 }
 
-fn parse_sysv(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
+fn parse_sysv(data: &[u8]) -> Result<Vec<String>, ParseError> {
     let mut symbols = Vec::new();
+    let mut budget = SymbolBudget::new();
 
     let mut s = Stream::new(data, ByteOrder::BigEndian);
     let count = s.read::<u32>()? as usize;
@@ -74,27 +75,17 @@ fn parse_sysv(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
     // Validate the offset table before looking for symbol names.
     let offsets_len = count.checked_mul(4).ok_or(UnexpectedEof {})?;
     s.read_bytes(offsets_len)?;
-    let mut i = s.offset();
-
-    for _ in 0..count {
-        if let Some(s) = parse_null_string(data, i) {
-            symbols.push(SymbolName::demangle(s).complete);
-
-            i += s.len() + 1;
-        } else {
-            i += 1;
-        }
-
-        if i >= data.len() {
-            break;
-        }
+    let strings = s.read_bytes(s.remaining())?;
+    for name in null_strings(strings).take(count).flatten() {
+        symbols.push(budget.demangle(name)?.complete);
     }
 
     Ok(symbols)
 }
 
-fn parse_bsd(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
+fn parse_bsd(data: &[u8]) -> Result<Vec<String>, ParseError> {
     let mut symbols = Vec::new();
+    let mut budget = SymbolBudget::new();
 
     let mut s = Stream::new(data, ByteOrder::LittleEndian);
     let entries_len = s.read::<u32>()? as usize;
@@ -102,18 +93,23 @@ fn parse_bsd(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
     let strings_len = s.read::<u32>()? as usize;
     let strings = s.read_bytes(strings_len)?;
 
-    let mut i = 0;
-    while i < strings.len() {
-        if let Some(s) = parse_null_string(strings, i) {
-            symbols.push(SymbolName::demangle(s).complete);
-
-            i += s.len() + 1;
-        } else {
-            i += 1;
-        }
+    for name in null_strings(strings).flatten() {
+        symbols.push(budget.demangle(name)?.complete);
     }
 
     Ok(symbols)
+}
+
+// Consume each record once, including invalid UTF-8 and unterminated records.
+// Retrying at every byte of an invalid record would rescan its suffixes.
+fn null_strings(data: &[u8]) -> impl Iterator<Item = Option<&str>> {
+    data.split_inclusive(|&byte| byte == 0).map(|record| {
+        let name = record.strip_suffix(&[0])?;
+        if name.is_empty() {
+            return None;
+        }
+        str::from_utf8(name).ok()
+    })
 }
 
 #[cfg(test)]
@@ -245,5 +241,44 @@ mod tests {
     fn ignores_non_archives_and_empty_archives() {
         assert!(parse(b"not an archive").unwrap().is_empty());
         assert!(parse(b"!<arch>\n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn skips_invalid_names_as_whole_records() {
+        let strings = b"\xffbad\0\0good\0unterminated";
+        let mut sysv = 4u32.to_be_bytes().to_vec();
+        sysv.extend_from_slice(&[0; 16]);
+        sysv.extend_from_slice(strings);
+        assert_eq!(parse(&archive("/", &sysv)).unwrap(), ["good"]);
+
+        let mut bsd = b"__.SYMDEF\0\0\0".to_vec();
+        bsd.extend_from_slice(&0u32.to_le_bytes());
+        bsd.extend_from_slice(&(strings.len() as u32).to_le_bytes());
+        bsd.extend_from_slice(strings);
+        assert_eq!(parse(&archive("#1/12", &bsd)).unwrap(), ["good"]);
+    }
+
+    #[test]
+    fn bounds_aggregate_demangled_output() {
+        let mut name = format!("_RMC0{}p", "T".repeat(15));
+        for offset in (3..18).rev() {
+            name.push_str(&format!(
+                "B{}_E",
+                b"0123456789abcdefghijklmnopqrstuvwxyz"[offset] as char
+            ));
+        }
+        // Each short name expands successfully on its own, but repeating it
+        // must not allocate hundreds of megabytes from a sub-100-KiB archive.
+        assert!(crate::demangle::SymbolName::demangle(&name).complete.len() > 100_000);
+        let mut contents = 1024u32.to_be_bytes().to_vec();
+        contents.resize(4 + 4 * 1024, 0);
+        for _ in 0..1024 {
+            contents.extend_from_slice(name.as_bytes());
+            contents.push(0);
+        }
+        assert!(matches!(
+            parse(&archive("/", &contents)),
+            Err(ParseError::ResourceLimitExceeded)
+        ));
     }
 }

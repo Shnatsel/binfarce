@@ -7,6 +7,7 @@
 
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::symbols::SymbolBudget;
 use crate::ByteOrder;
 use crate::ParseError;
 
@@ -271,7 +272,16 @@ fn parse_symbols(
     raw_symbols.sort_by_key(|v| v.address);
 
     let mut symbols = Vec::new();
-    for (i, sym) in raw_symbols.iter().enumerate() {
+    let mut budget = SymbolBudget::new();
+    // Walk backwards so finding the next distinct address costs constant time,
+    // including when thousands of aliases have the same address.
+    let mut last_address = text_end;
+    let mut next_address = text_end;
+    for sym in raw_symbols.iter().rev() {
+        if sym.address != last_address {
+            next_address = last_address;
+            last_address = sym.address;
+        }
         if sym.string_index == 0 {
             continue;
         }
@@ -302,30 +312,20 @@ fn parse_symbols(
             return Err(ParseError::MalformedInput);
         }
 
-        // Mach-O format doesn't store the symbols size,
-        // so we have to calculate it by subtracting an address of the next symbol
-        // from the current.
-        // Next symbol can have the same address as the current one,
-        // so we have to find the one that has a different address.
-        let next_sym = raw_symbols
-            .get(i..)
-            .ok_or(ParseError::MalformedInput)?
-            .iter()
-            .skip_while(|s| s.address == sym.address)
-            .next();
-        let next_address = next_sym.map_or(text_end, |next| next.address.min(text_end));
         let size = next_address
+            .min(text_end)
             .checked_sub(sym.address)
             .ok_or(ParseError::MalformedInput)?;
 
         if let Some(s) = parse_null_string(strings, sym.string_index as usize) {
             symbols.push(SymbolData {
-                name: crate::demangle::SymbolName::demangle(s),
+                name: budget.demangle(s)?,
                 address: sym.address,
                 size,
             });
         }
     }
 
+    symbols.reverse();
     Ok(symbols)
 }

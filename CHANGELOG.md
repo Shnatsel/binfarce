@@ -7,12 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+
 - The `ar` parser is now hardened against malformed input and will no longer panic on certain inputs.
 - `ar::parse` now returns `ParseError` instead of `UnexpectedEof` as the error type.
 - ar: Bound BSD extended names to their archive member and handle trailing member padding.
+- Symbol extraction: harden against panics and memory exhaustion.
 - Mach-O: Return errors for malformed load commands, symbol tables, and addresses; accept empty text sections.
 - PE: Handle invalid section numbers and string offsets without overflowing, and calculate sizes for the first symbol and aliases correctly.
-- Validate Mach-O and PE symbol tables before allocating, and avoid eager symbol allocations based on file-provided counts in Mach-O, PE, and ELF.
 
 ## [0.2.2] - 2026-09-17
 ### Fixed

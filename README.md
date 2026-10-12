@@ -20,7 +20,7 @@ This crate is used mostly for sharing code between `cargo-bloat` and `auditable-
 
 `#[forbid(unsafe_code)]` ensures absence of code execution vulnerabilities. Absence of heap allocations ensures that it can't exhaust RAM. Static analysis via opt-in Clippy lints and fuzzing are used to ensure absence of panics.
 
-**Symbol extraction** is used by `cargo-bloat` only. It allocates unbounded amounts of memory on the heap and may panic given an untrusted input.
+**Symbol extraction** is used by `cargo-bloat` only. It allocates owned symbol names on the heap, with a built-in 64MiB limit that should never be reached in practice. It is memory-safe but not quite as thoroughly hardened against DoS as the rest of the code.
 
 PRs with functionality required for your own tool are welcome as long as they adhere to the above goals and keep existing tools working. However, you should consider using the full-featured [`goblin`](https://crates.io/crates/goblin) crate instead.
 

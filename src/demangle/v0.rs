@@ -1,5 +1,6 @@
 use std::char;
 use std::fmt::{self, Display, Write};
+use std::rc::Rc;
 
 // Bound both validation and expansion of untrusted symbols. Backreferences can
 // recurse or expand exponentially, even when the input is very short.
@@ -133,7 +134,7 @@ impl Demangle<'_> {
         Ok(super::SymbolName {
             complete: complete.text,
             trimmed: trimmed.text,
-            crate_name,
+            crate_name: crate_name.map(|name| name.as_ref().to_string()),
             kind: super::Kind::V0,
         })
     }
@@ -650,7 +651,7 @@ struct Printer<'a, 's> {
     steps: &'a mut usize,
     bound_lifetime_depth: u32,
     print_disambiguator: bool,
-    crate_name: Option<String>,
+    crate_name: Option<Rc<str>>,
 }
 
 /// Mark the parser as errored, print `?` and return early.
@@ -803,7 +804,7 @@ impl<'a, 's> Printer<'a, 's> {
                 let start = self.out.text.len();
                 self.out.write_fmt(format_args!("{}", name))?;
                 if self.crate_name.is_none() {
-                    self.crate_name = Some(self.out.text[start..].to_string());
+                    self.crate_name = Some(Rc::from(&self.out.text[start..]));
                 }
                 if self.print_disambiguator {
                     self.out.write_str("[")?;

@@ -9,6 +9,7 @@
 
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::symbols::SymbolBudget;
 use crate::ByteOrder;
 use crate::ParseError;
 
@@ -163,6 +164,7 @@ impl Pe<'_> {
         let strings = s.read_bytes(s.remaining())?;
 
         let mut symbols = Vec::new();
+        let mut budget = SymbolBudget::new();
         let mut s = Stream::new(symbols_data, ByteOrder::LittleEndian);
         while !s.at_end() {
             let name = s.read_bytes(8)?;
@@ -210,7 +212,7 @@ impl Pe<'_> {
 
             if let Some(s) = name {
                 symbols.push(SymbolData {
-                    name: crate::demangle::SymbolName::demangle(s),
+                    name: budget.demangle(s)?,
                     address: value.into(),
                     size: 0,
                 });

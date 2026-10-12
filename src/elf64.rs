@@ -9,6 +9,7 @@ use std::{convert::TryInto, mem::size_of, ops::Range};
 
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::symbols::SymbolBudget;
 use crate::ByteOrder;
 use crate::ParseError;
 
@@ -244,8 +245,9 @@ fn parse_symbols(
     mut s: Stream,
     strings: &[u8],
     text_section: Section,
-) -> Result<Vec<SymbolData>, UnexpectedEof> {
+) -> Result<Vec<SymbolData>, ParseError> {
     let mut symbols = Vec::new();
+    let mut budget = SymbolBudget::new();
     while !s.at_end() {
         // Note: the order of fields in 32 and 64 bit ELF is different.
         let name_offset = s.read::<elf::Word>()? as usize;
@@ -278,7 +280,7 @@ fn parse_symbols(
 
         if let Some(s) = parse_null_string(strings, name_offset) {
             symbols.push(SymbolData {
-                name: crate::demangle::SymbolName::demangle(s),
+                name: budget.demangle(s)?,
                 address: value,
                 size,
             });

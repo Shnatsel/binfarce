@@ -10,6 +10,7 @@ pub enum ParseError {
     UnexpectedSectionType { expected: u32, actual: u32 },
     MalformedInput,
     UnexpectedEof,
+    ResourceLimitExceeded,
 }
 
 impl Error for ParseError {}
@@ -24,6 +25,7 @@ impl Display for ParseError {
             }
             ParseError::MalformedInput => write!(f, "malformed input file"),
             ParseError::UnexpectedEof => write!(f, "unexpected end of file"),
+            ParseError::ResourceLimitExceeded => write!(f, "symbol allocation limit exceeded"),
         }
     }
 }

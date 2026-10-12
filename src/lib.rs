@@ -21,6 +21,7 @@ pub mod elf64;
 mod error;
 pub mod macho;
 mod parser;
+mod symbols;
 pub mod pe;
 
 pub use crate::error::ParseError;
