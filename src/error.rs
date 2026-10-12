@@ -1,4 +1,7 @@
-use std::{fmt::{Debug, Display}, error::Error};
+use std::{
+    error::Error,
+    fmt::{Debug, Display},
+};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ParseError {
@@ -7,6 +10,7 @@ pub enum ParseError {
     UnexpectedSectionType { expected: u32, actual: u32 },
     MalformedInput,
     UnexpectedEof,
+    ResourceLimitExceeded,
 }
 
 impl Error for ParseError {}
@@ -16,10 +20,12 @@ impl Display for ParseError {
         match self {
             ParseError::SymbolsSectionIsMissing => write!(f, "symbols section is missing"),
             ParseError::SectionIsMissing(name) => write!(f, "section {} is missing", name),
-            ParseError::UnexpectedSectionType { expected, actual } =>
-                write!(f, "expected section type {} but found {}", expected, actual),
+            ParseError::UnexpectedSectionType { expected, actual } => {
+                write!(f, "expected section type {} but found {}", expected, actual)
+            }
             ParseError::MalformedInput => write!(f, "malformed input file"),
             ParseError::UnexpectedEof => write!(f, "unexpected end of file"),
+            ParseError::ResourceLimitExceeded => write!(f, "symbol allocation limit exceeded"),
         }
     }
 }

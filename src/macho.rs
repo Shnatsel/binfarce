@@ -5,25 +5,26 @@
 // Style lints
 #![warn(clippy::cast_lossless)]
 
-use crate::ByteOrder;
 use crate::demangle::SymbolData;
 use crate::parser::*;
+use crate::symbol_budget::SymbolBudget;
+use crate::ByteOrder;
 use crate::ParseError;
 
-use std::ops::Range;
 use std::convert::TryInto;
+use std::ops::Range;
 
 const LC_SYMTAB: u32 = 0x2;
 const LC_SEGMENT_64: u32 = 0x19;
 
 #[derive(Debug, Clone, Copy)]
-struct Cmd {
+struct Cmd<'a> {
     kind: u32,
-    offset: usize,
+    data: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Section <'a> {
+pub struct Section<'a> {
     segment_name: &'a str,
     section_name: &'a str,
     address: u64,
@@ -31,10 +32,12 @@ pub struct Section <'a> {
     size: u64,
 }
 
-impl Section <'_> {
+impl Section<'_> {
     pub fn range(&self) -> Result<Range<usize>, ParseError> {
         let start: usize = self.offset.try_into()?;
-        let end: usize = start.checked_add(self.size.try_into()?).ok_or(ParseError::MalformedInput)?;
+        let end: usize = start
+            .checked_add(self.size.try_into()?)
+            .ok_or(ParseError::MalformedInput)?;
         Ok(start..end)
     }
 }
@@ -53,7 +56,7 @@ pub struct MachoHeader {
 }
 
 #[derive(Debug, Clone)]
-pub struct Macho <'a> {
+pub struct Macho<'a> {
     data: &'a [u8],
     header: MachoHeader,
 }
@@ -68,7 +71,7 @@ fn parse_macho_header(s: &mut Stream) -> Result<MachoHeader, UnexpectedEof> {
         sizeofcmds: s.read()?,
         flags: s.read()?,
     };
-    s.skip::<u32>()?; // reserved
+    s.read::<u32>()?; // reserved
     Ok(header)
 }
 
@@ -79,30 +82,24 @@ struct MachoCommandsIterator<'a> {
     result: Result<(), ParseError>,
 }
 
-impl Iterator for MachoCommandsIterator<'_> {
-    type Item = Result<Cmd, ParseError>;
+impl<'a> Iterator for MachoCommandsIterator<'a> {
+    type Item = Result<Cmd<'a>, ParseError>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.commands_already_read < self.number_of_commands && self.result.is_ok() {
             let s = &mut self.stream;
-            let cmd_kind: u32 = s.read().ok()?;
-            let cmd_size: u32 = s.read().ok()?;
-            let item = Cmd {kind: cmd_kind, offset: s.offset()};
+            let item = (|| {
+                let kind = s.read::<u32>()?;
+                let cmd_size = s.read::<u32>()? as usize;
+                let payload_size = cmd_size.checked_sub(8).ok_or(ParseError::MalformedInput)?;
+                Ok(Cmd {
+                    kind,
+                    data: s.read_bytes(payload_size)?,
+                })
+            })();
             self.commands_already_read = self.commands_already_read.checked_add(1)?;
-
-            // cmd_size is a size of a whole command data,
-            // so we have to remove the header size first.
-            let to_skip = (cmd_size as usize).checked_sub(8);
-            // Skip the rest of the command to get to the start of the next one.
-            // If we encounter EOF or if the command size makes no sense,
-            // make the iterator return None from now on.
-            self.result = match to_skip {
-                None => Err(ParseError::MalformedInput),
-                Some(len) => s.skip_len(len).map_err(|_| ParseError::UnexpectedEof),
-            };
-            match self.result {
-                Ok(()) => Some(Ok(item)),
-                Err(err_val) => Some(Err(err_val)),
-            }
+            // Report the first invalid command, then stop the iterator.
+            self.result = item.as_ref().map(|_| ()).map_err(|err| *err);
+            Some(item)
         } else {
             None
         }
@@ -112,22 +109,22 @@ impl Iterator for MachoCommandsIterator<'_> {
 pub fn parse(data: &[u8]) -> Result<Macho, ParseError> {
     let mut s = Stream::new(&data, ByteOrder::LittleEndian);
     let header = parse_macho_header(&mut s)?;
-    Ok(Macho{
-        data,
-        header,
-    })
+    Ok(Macho { data, header })
 }
 
-impl <'a> Macho<'a> {
+impl<'a> Macho<'a> {
     pub fn header(&self) -> MachoHeader {
         self.header
     }
 
-    pub fn find_section<F: Fn(Section) -> bool>(&self, callback: F) -> Result<Option<Section>, ParseError> {
+    pub fn find_section<F: Fn(Section) -> bool>(
+        &self,
+        callback: F,
+    ) -> Result<Option<Section>, ParseError> {
         for cmd in self.commands() {
             let cmd = cmd?;
             if cmd.kind == LC_SEGMENT_64 {
-                let mut s = Stream::new_at(self.data, cmd.offset, ByteOrder::LittleEndian)?;
+                let mut s = Stream::new(cmd.data, ByteOrder::LittleEndian);
                 s.skip_len(16)?; // segname
                 s.skip::<u64>()?; // vmaddr
                 s.skip::<u64>()?; // vmsize
@@ -136,7 +133,7 @@ impl <'a> Macho<'a> {
                 s.skip::<u32>()?; // maxprot
                 s.skip::<u32>()?; // initprot
                 let sections_count: u32 = s.read()?;
-                s.skip::<u32>()?; // flags
+                s.read::<u32>()?; // flags
 
                 for _ in 0..sections_count {
                     let section_name = parse_null_string(s.read_bytes(16)?, 0);
@@ -148,7 +145,7 @@ impl <'a> Macho<'a> {
                     s.skip::<u32>()?; // reloff
                     s.skip::<u32>()?; // nreloc
                     s.skip::<u32>()?; // flags
-                    s.skip_len(12)?; // padding
+                    s.read_bytes(12)?; // padding
 
                     if let (Some(segment), Some(section)) = (segment_name, section_name) {
                         let section = Section {
@@ -168,7 +165,11 @@ impl <'a> Macho<'a> {
         Ok(None)
     }
 
-    pub fn section_with_name(&self, segment_name: &str, section_name: &str) -> Result<Option<Section>, ParseError> {
+    pub fn section_with_name(
+        &self,
+        segment_name: &str,
+        section_name: &str,
+    ) -> Result<Option<Section>, ParseError> {
         let callback = |section: Section| {
             section.segment_name == segment_name && section.section_name == section_name
         };
@@ -182,18 +183,20 @@ impl <'a> Macho<'a> {
             stream: s,
             number_of_commands: self.header.ncmds,
             commands_already_read: 0,
-            result: Ok(())
+            result: Ok(()),
         }
     }
 
-    #[allow(clippy::indexing_slicing)]
     pub fn symbols(&self) -> Result<(Vec<SymbolData>, u64), ParseError> {
-        let text_section = self.section_with_name("__TEXT", "__text")?
+        let text_section = self
+            .section_with_name("__TEXT", "__text")?
             .ok_or(ParseError::SymbolsSectionIsMissing)?;
-        assert_ne!(text_section.size, 0);
-
-        if let Some(cmd) = self.commands().find(|v| v.unwrap().kind == LC_SYMTAB) {
-            let mut s = Stream::new(&self.data[cmd.unwrap().offset..], ByteOrder::LittleEndian);
+        for cmd in self.commands() {
+            let cmd = cmd?;
+            if cmd.kind != LC_SYMTAB {
+                continue;
+            }
+            let mut s = Stream::new(cmd.data, ByteOrder::LittleEndian);
             let symbols_offset: u32 = s.read()?;
             let number_of_symbols: u32 = s.read()?;
             let strings_offset: u32 = s.read()?;
@@ -201,13 +204,24 @@ impl <'a> Macho<'a> {
 
             let strings = {
                 let start = strings_offset as usize;
-                let end = start.checked_add(strings_size as usize).ok_or(ParseError::MalformedInput)?;
-                &self.data[start..end]
+                let end = start
+                    .checked_add(strings_size as usize)
+                    .ok_or(ParseError::MalformedInput)?;
+                self.data.get(start..end).ok_or(ParseError::UnexpectedEof)?
             };
 
-            let symbols_data = &self.data[symbols_offset as usize..];
+            let symbols_data = self
+                .data
+                .get(symbols_offset as usize..)
+                .ok_or(ParseError::UnexpectedEof)?;
             return Ok((
-                parse_symbols(symbols_data, number_of_symbols, strings, text_section)?,
+                parse_symbols(
+                    symbols_data,
+                    number_of_symbols,
+                    strings,
+                    text_section,
+                    SymbolBudget::new(),
+                )?,
                 text_section.size,
             ));
         }
@@ -222,21 +236,28 @@ struct RawSymbol {
     kind: u8,
     section: u8,
     address: u64,
+    index: u32,
 }
 
-// only used by cargo-bloat which operates on trusted data,
-// so it's not hardened against malicious inputs
-#[allow(clippy::integer_arithmetic)]
-#[allow(clippy::indexing_slicing)]
 fn parse_symbols(
     data: &[u8],
     count: u32,
     strings: &[u8],
     text_section: Section,
-) -> Result<Vec<SymbolData>, UnexpectedEof> {
-    let mut raw_symbols = Vec::with_capacity(count as usize);
+    mut budget: SymbolBudget,
+) -> Result<Vec<SymbolData>, ParseError> {
     let mut s = Stream::new(data, ByteOrder::LittleEndian);
-    for _ in 0..count {
+    let table_size = (count as usize)
+        .checked_mul(16)
+        .ok_or(ParseError::MalformedInput)?;
+    let table = s.read_bytes(table_size)?;
+    let mut s = Stream::new(table, ByteOrder::LittleEndian);
+    let text_end = text_section
+        .address
+        .checked_add(text_section.size)
+        .ok_or(ParseError::MalformedInput)?;
+    let mut raw_symbols = Vec::new();
+    for index in 0..count {
         let string_index: u32 = s.read()?;
         let kind: u8 = s.read()?;
         let section: u8 = s.read()?;
@@ -247,37 +268,39 @@ fn parse_symbols(
             continue;
         }
 
-        raw_symbols.push(RawSymbol {
-            string_index,
-            kind,
-            section,
-            address: value,
-        });
+        budget.push(
+            &mut raw_symbols,
+            RawSymbol {
+                string_index,
+                kind,
+                section,
+                address: value,
+                index,
+            },
+        )?;
     }
 
     // To find symbol sizes, we have to sort them by address.
-    raw_symbols.sort_by_key(|v| v.address);
+    // Preserve alias order without the scratch allocation of a stable sort.
+    raw_symbols.sort_unstable_by_key(|v| (v.address, v.index));
 
-    // Add the __TEXT section end address, which will be used
-    // to calculate the size of the last symbol.
-    raw_symbols.push(RawSymbol {
-        string_index: 0,
-        kind: 0,
-        section: 0,
-        address: text_section.address + text_section.size,
-    });
-
-    let mut symbols = Vec::with_capacity(count as usize);
-    for i in 0..raw_symbols.len() - 1 {
-        let sym = &raw_symbols[i];
-
+    let mut symbols = Vec::new();
+    // Walk backwards so finding the next distinct address costs constant time,
+    // including when thousands of aliases have the same address.
+    let mut last_address = text_end;
+    let mut next_address = text_end;
+    for sym in raw_symbols.iter().rev() {
+        if sym.address != last_address {
+            next_address = last_address;
+            last_address = sym.address;
+        }
         if sym.string_index == 0 {
             continue;
         }
 
-        const N_TYPE: u8   = 0x0E;
+        const N_TYPE: u8 = 0x0E;
         const INDIRECT: u8 = 0xA;
-        const SECTION: u8  = 0xE;
+        const SECTION: u8 = 0xE;
 
         let sub_type = sym.kind & N_TYPE;
 
@@ -297,25 +320,58 @@ fn parse_symbols(
             continue;
         }
 
-        // Mach-O format doesn't store the symbols size,
-        // so we have to calculate it by subtracting an address of the next symbol
-        // from the current.
-        // Next symbol can have the same address as the current one,
-        // so we have to find the one that has a different address.
-        let next_sym = raw_symbols[i..].iter().skip_while(|s| s.address == sym.address).next();
-        let size = match next_sym {
-            Some(next) => next.address - sym.address,
-            None => continue,
-        };
+        if sym.address < text_section.address || sym.address > text_end {
+            return Err(ParseError::MalformedInput);
+        }
+
+        let size = next_address
+            .min(text_end)
+            .checked_sub(sym.address)
+            .ok_or(ParseError::MalformedInput)?;
 
         if let Some(s) = parse_null_string(strings, sym.string_index as usize) {
-            symbols.push(SymbolData {
-                name: crate::demangle::SymbolName::demangle(s),
-                address: sym.address,
-                size,
-            });
+            let name = budget.demangle(s)?;
+            budget.push(
+                &mut symbols,
+                SymbolData {
+                    name,
+                    address: sym.address,
+                    size,
+                },
+            )?;
         }
     }
 
+    symbols.reverse();
     Ok(symbols)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unnamed_symbols_cannot_bypass_the_allocation_budget() {
+        let mut data = Vec::new();
+        for _ in 0..5 {
+            data.extend_from_slice(&[0; 8]); // no name, no section
+            data.extend_from_slice(&1u64.to_le_bytes());
+        }
+        let section = Section {
+            segment_name: "__TEXT",
+            section_name: "__text",
+            address: 1,
+            offset: 0,
+            size: 1,
+        };
+        let budget = SymbolBudget::with_limit(4 * std::mem::size_of::<RawSymbol>());
+        assert!(matches!(
+            parse_symbols(&data, 5, b"", section, budget),
+            Err(ParseError::ResourceLimitExceeded)
+        ));
+        // With enough temporary storage, unnamed symbols are still ignored.
+        assert!(parse_symbols(&data, 5, b"", section, SymbolBudget::new())
+            .unwrap()
+            .is_empty());
+    }
 }

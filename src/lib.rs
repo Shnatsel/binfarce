@@ -11,7 +11,6 @@
 #![allow(clippy::while_let_loop)]
 #![allow(clippy::single_char_pattern)]
 #![allow(clippy::many_single_char_names)]
-
 // I find this more readable
 #![allow(clippy::skip_while_next)]
 
@@ -19,10 +18,11 @@ pub mod ar;
 pub mod demangle;
 pub mod elf32;
 pub mod elf64;
-pub mod macho;
-pub mod pe;
-mod parser;
 mod error;
+pub mod macho;
+mod parser;
+pub mod pe;
+mod symbol_budget;
 
 pub use crate::error::ParseError;
 pub use crate::parser::UnexpectedEof;
@@ -34,15 +34,17 @@ pub enum ByteOrder {
 }
 
 pub enum Format {
-    Elf32 {byte_order: ByteOrder},
-    Elf64 {byte_order: ByteOrder},
+    Elf32 { byte_order: ByteOrder },
+    Elf64 { byte_order: ByteOrder },
     Macho,
     PE,
     Unknown,
 }
 
 pub fn detect_format(data: &[u8]) -> Format {
-    if data.len() < 8 {return Format::Unknown};
+    if data.len() < 8 {
+        return Format::Unknown;
+    };
     let macho_signatures = [
         b"\xCA\xFE\xBA\xBE", // multi-architecture macOS
         b"\xFE\xED\xFA\xCE", // 32-bit macOS
@@ -57,8 +59,8 @@ pub fn detect_format(data: &[u8]) -> Format {
             _ => return Format::Unknown,
         };
         return match data[4] {
-            1 => Format::Elf32{byte_order},
-            2 => Format::Elf64{byte_order},
+            1 => Format::Elf32 { byte_order },
+            2 => Format::Elf64 { byte_order },
             _ => Format::Unknown,
         };
     } else if data.starts_with(b"MZ") {

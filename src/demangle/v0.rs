@@ -1,5 +1,35 @@
 use std::char;
 use std::fmt::{self, Display, Write};
+use std::rc::Rc;
+
+// Bound both validation and expansion of untrusted symbols. Backreferences can
+// recurse or expand exponentially, even when the input is very short.
+const MAX_DEPTH: usize = 128;
+const MAX_STEPS: usize = 100_000;
+const MAX_OUTPUT: usize = 1024 * 1024;
+
+struct Output {
+    text: String,
+    // Count all emitted bytes, including text later discarded for impl paths.
+    remaining: usize,
+}
+
+impl Output {
+    fn new() -> Self {
+        Self {
+            text: String::new(),
+            remaining: MAX_OUTPUT,
+        }
+    }
+}
+
+impl Write for Output {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        self.remaining = self.remaining.checked_sub(text.len()).ok_or(fmt::Error)?;
+        self.text.push_str(text);
+        Ok(())
+    }
+}
 
 /// Representation of a demangled symbol name.
 pub struct Demangle<'a> {
@@ -44,6 +74,7 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), Invalid> {
     let mut parser = Parser {
         sym: inner,
         next: 0,
+        depth: 0,
     };
     parser.skip_path()?;
 
@@ -55,51 +86,57 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), Invalid> {
         _ => {}
     }
 
-    Ok((Demangle {
-        inner,
-    }, &parser.sym[parser.next..]))
+    Ok((Demangle { inner }, &parser.sym[parser.next..]))
 }
 
 impl Demangle<'_> {
-    pub fn demangle(&self) -> super::SymbolName {
-        let mut complete = String::new();
+    pub fn demangle(&self) -> Result<super::SymbolName, fmt::Error> {
+        let mut complete = Output::new();
+        let mut steps = MAX_STEPS;
         let crate_name = {
             let mut printer = Printer {
                 parser: Ok(Parser {
                     sym: self.inner,
                     next: 0,
+                    depth: 0,
                 }),
                 out: &mut complete,
+                depth: 0,
+                steps: &mut steps,
                 bound_lifetime_depth: 0,
                 print_disambiguator: true,
                 crate_name: None,
             };
-            printer.print_path(true).unwrap();
+            printer.print_path(true)?;
             printer.crate_name
         };
 
         // Parse again, but without printing disambiguator.
-        let mut trimmed = String::new();
+        let mut trimmed = Output::new();
+        let mut steps = MAX_STEPS;
         {
             let mut printer = Printer {
                 parser: Ok(Parser {
                     sym: self.inner,
                     next: 0,
+                    depth: 0,
                 }),
                 out: &mut trimmed,
+                depth: 0,
+                steps: &mut steps,
                 bound_lifetime_depth: 0,
                 print_disambiguator: false,
                 crate_name: None,
             };
-            printer.print_path(true).unwrap();
+            printer.print_path(true)?;
         }
 
-        super::SymbolName {
-            complete,
-            trimmed,
-            crate_name,
+        Ok(super::SymbolName {
+            complete: complete.text,
+            trimmed: trimmed.text,
+            crate_name: crate_name.map(|name| name.as_ref().to_string()),
             kind: super::Kind::V0,
-        }
+        })
     }
 }
 
@@ -119,10 +156,7 @@ impl<'s> Ident<'s> {
     /// Attempt to decode punycode on the stack (allocation-free),
     /// and pass the char slice to the closure, if successful.
     /// This supports up to `SMALL_PUNYCODE_LEN` characters.
-    fn try_small_punycode_decode<F: FnOnce(&[char]) -> R, R>(
-        &self,
-        f: F,
-    ) -> Option<R> {
+    fn try_small_punycode_decode<F: FnOnce(&[char]) -> R, R>(&self, f: F) -> Option<R> {
         let mut out = ['\0'; SMALL_PUNYCODE_LEN];
         let mut out_len = 0;
         let r = self.punycode_decode(|i, c| {
@@ -186,7 +220,7 @@ impl<'s> Ident<'s> {
             let mut w = 1;
             let mut k: usize = 0;
             loop {
-                use core::cmp::{min, max};
+                use core::cmp::{max, min};
 
                 k += base;
                 let t = min(max(k.saturating_sub(bias), t_min), t_max);
@@ -197,9 +231,7 @@ impl<'s> Ident<'s> {
                     _ => return Err(()),
                 };
                 let d = d as usize;
-                delta = delta.checked_add(
-                    d.checked_mul(w).ok_or(())?
-                ).ok_or(())?;
+                delta = delta.checked_add(d.checked_mul(w).ok_or(())?).ok_or(())?;
                 if d < t {
                     break;
                 }
@@ -250,7 +282,8 @@ impl<'s> Display for Ident<'s> {
                 c.fmt(f)?;
             }
             Ok(())
-        }).unwrap_or_else(|| {
+        })
+        .unwrap_or_else(|| {
             if !self.punycode.is_empty() {
                 f.write_str("punycode{")?;
 
@@ -301,6 +334,7 @@ fn basic_type(tag: u8) -> Option<&'static str> {
 struct Parser<'s> {
     sym: &'s str,
     next: usize,
+    depth: usize,
 }
 
 impl<'s> Parser<'s> {
@@ -401,6 +435,7 @@ impl<'s> Parser<'s> {
         Ok(Parser {
             sym: self.sym,
             next: i as usize,
+            depth: self.depth,
         })
     }
 
@@ -454,6 +489,16 @@ impl<'s> Parser<'s> {
     }
 
     fn skip_path(&mut self) -> Result<(), Invalid> {
+        if self.depth >= MAX_DEPTH {
+            return Err(Invalid);
+        }
+        self.depth += 1;
+        let result = self.skip_path_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn skip_path_inner(&mut self) -> Result<(), Invalid> {
         match self.next()? {
             b'C' => {
                 self.disambiguator()?;
@@ -506,6 +551,16 @@ impl<'s> Parser<'s> {
     }
 
     fn skip_type(&mut self) -> Result<(), Invalid> {
+        if self.depth >= MAX_DEPTH {
+            return Err(Invalid);
+        }
+        self.depth += 1;
+        let result = self.skip_type_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn skip_type_inner(&mut self) -> Result<(), Invalid> {
         match self.next()? {
             tag if basic_type(tag).is_some() => {}
 
@@ -520,9 +575,11 @@ impl<'s> Parser<'s> {
                 self.skip_type()?;
                 self.skip_const()?;
             }
-            b'T' => while !self.eat(b'E') {
-                self.skip_type()?;
-            },
+            b'T' => {
+                while !self.eat(b'E') {
+                    self.skip_type()?;
+                }
+            }
             b'F' => {
                 let _binder = self.opt_integer_62(b'G')?;
                 let _is_unsafe = self.eat(b'U');
@@ -589,10 +646,12 @@ impl<'s> Parser<'s> {
 
 struct Printer<'a, 's> {
     parser: Result<Parser<'s>, Invalid>,
-    out: &'a mut String,
+    out: &'a mut Output,
+    depth: usize,
+    steps: &'a mut usize,
     bound_lifetime_depth: u32,
     print_disambiguator: bool,
-    crate_name: Option<String>,
+    crate_name: Option<Rc<str>>,
 }
 
 /// Mark the parser as errored, print `?` and return early.
@@ -602,9 +661,9 @@ struct Printer<'a, 's> {
 macro_rules! invalid {
     ($printer:ident) => {{
         $printer.parser = Err(Invalid);
-        $printer.out.push('?');
+        $printer.out.write_str("?")?;
         return Ok(());
-    }}
+    }};
 }
 
 /// Call a parser method (if the parser hasn't errored yet),
@@ -622,6 +681,15 @@ macro_rules! parse {
 }
 
 impl<'a, 's> Printer<'a, 's> {
+    fn enter(&mut self) -> fmt::Result {
+        if self.depth >= MAX_DEPTH {
+            return Err(fmt::Error);
+        }
+        *self.steps = self.steps.checked_sub(1).ok_or(fmt::Error)?;
+        self.depth += 1;
+        Ok(())
+    }
+
     fn parser_mut<'c>(&'c mut self) -> Result<&'c mut Parser<'s>, Invalid> {
         self.parser.as_mut().map_err(|_| Invalid)
     }
@@ -637,6 +705,8 @@ impl<'a, 's> Printer<'a, 's> {
         Printer {
             parser: self.parser_mut().and_then(|p| p.backref()),
             out: self.out,
+            depth: self.depth,
+            steps: self.steps,
             bound_lifetime_depth: self.bound_lifetime_depth,
             print_disambiguator: self.print_disambiguator,
             crate_name: self.crate_name.clone(),
@@ -671,20 +741,24 @@ impl<'a, 's> Printer<'a, 's> {
     /// printing e.g. `for<'a, 'b> ` before calling the closure,
     /// and make those lifetimes visible to it (via depth level).
     fn in_binder<F>(&mut self, f: F) -> fmt::Result
-        where F: FnOnce(&mut Self) -> fmt::Result,
+    where
+        F: FnOnce(&mut Self) -> fmt::Result,
     {
         let bound_lifetimes = parse!(self, opt_integer_62(b'G'));
+        if bound_lifetimes > u64::from(u32::MAX - self.bound_lifetime_depth) {
+            return Err(fmt::Error);
+        }
 
         if bound_lifetimes > 0 {
-            self.out.push_str("for<");
+            self.out.write_str("for<")?;
             for i in 0..bound_lifetimes {
                 if i > 0 {
-                    self.out.push_str(", ");
+                    self.out.write_str(", ")?;
                 }
                 self.bound_lifetime_depth += 1;
                 self.print_lifetime_from_index(1)?;
             }
-            self.out.push_str("> ");
+            self.out.write_str("> ")?;
         }
 
         let r = f(self);
@@ -699,12 +773,13 @@ impl<'a, 's> Printer<'a, 's> {
     /// until the end of the list ('E') is found, or the parser errors.
     /// Returns the number of elements printed.
     fn print_sep_list<F>(&mut self, f: F, sep: &str) -> Result<usize, fmt::Error>
-        where F: Fn(&mut Self) -> fmt::Result,
+    where
+        F: Fn(&mut Self) -> fmt::Result,
     {
         let mut i = 0;
         while self.parser.is_ok() && !self.eat(b'E') {
             if i > 0 {
-                self.out.push_str(sep);
+                self.out.write_str(sep)?;
             }
             f(self)?;
             i += 1;
@@ -713,21 +788,28 @@ impl<'a, 's> Printer<'a, 's> {
     }
 
     fn print_path(&mut self, in_value: bool) -> fmt::Result {
+        self.enter()?;
+        let result = self.print_path_inner(in_value);
+        self.depth -= 1;
+        result
+    }
+
+    fn print_path_inner(&mut self, in_value: bool) -> fmt::Result {
         let tag = parse!(self, next);
         match tag {
             b'C' => {
                 let dis = parse!(self, disambiguator);
                 let name = parse!(self, ident);
 
-                if self.crate_name.is_none() {
-                    self.crate_name = Some(name.to_string());
-                }
-
+                let start = self.out.text.len();
                 self.out.write_fmt(format_args!("{}", name))?;
+                if self.crate_name.is_none() {
+                    self.crate_name = Some(Rc::from(&self.out.text[start..]));
+                }
                 if self.print_disambiguator {
-                    self.out.push_str("[");
+                    self.out.write_str("[")?;
                     self.out.write_fmt(format_args!("{:x}", dis))?;
-                    self.out.push_str("]");
+                    self.out.write_str("]")?;
                 }
             }
             b'N' => {
@@ -741,25 +823,25 @@ impl<'a, 's> Printer<'a, 's> {
                 match ns {
                     // Special namespaces, like closures and shims.
                     Some(ns) => {
-                        self.out.push_str("::{");
+                        self.out.write_str("::{")?;
                         match ns {
-                            'C' => self.out.push_str("closure"),
-                            'S' => self.out.push_str("shim"),
+                            'C' => self.out.write_str("closure")?,
+                            'S' => self.out.write_str("shim")?,
                             _ => self.out.write_fmt(format_args!("{}", ns))?,
                         }
                         if !name.ascii.is_empty() || !name.punycode.is_empty() {
-                            self.out.push_str(":");
+                            self.out.write_str(":")?;
                             self.out.write_fmt(format_args!("{}", name))?;
                         }
-                        self.out.push_str("#");
+                        self.out.write_str("#")?;
                         self.out.write_fmt(format_args!("{}", dis))?;
-                        self.out.push_str("}");
+                        self.out.write_str("}")?;
                     }
 
                     // Implementation-specific/unspecified namespaces.
                     None => {
                         if !name.ascii.is_empty() || !name.punycode.is_empty() {
-                            self.out.push_str("::");
+                            self.out.write_str("::")?;
                             self.out.write_fmt(format_args!("{}", name))?;
                         }
                     }
@@ -773,27 +855,27 @@ impl<'a, 's> Printer<'a, 's> {
                     // `rustc-demangle` ignores this path since it makes
                     // a symbol name too verbose, but we need it to extract a crate name.
                     // So we will print it as usual and then remove it from an output buffer.
-                    let start = self.out.len();
+                    let start = self.out.text.len();
                     self.print_path(in_value)?;
-                    self.out.drain(start..);
+                    self.out.text.truncate(start);
                 }
 
-                self.out.push_str("<");
+                self.out.write_str("<")?;
                 self.print_type()?;
                 if tag != b'M' {
-                    self.out.push_str(" as ");
+                    self.out.write_str(" as ")?;
                     self.print_path(false)?;
                 }
-                self.out.push_str(">");
+                self.out.write_str(">")?;
             }
             b'I' => {
                 self.print_path(in_value)?;
                 if in_value {
-                    self.out.push_str("::");
+                    self.out.write_str("::")?;
                 }
-                self.out.push_str("<");
+                self.out.write_str("<")?;
                 self.print_sep_list(Self::print_generic_arg, ", ")?;
-                self.out.push_str(">");
+                self.out.write_str(">")?;
             }
             b'B' => {
                 self.backref_printer().print_path(in_value)?;
@@ -815,6 +897,13 @@ impl<'a, 's> Printer<'a, 's> {
     }
 
     fn print_type(&mut self) -> fmt::Result {
+        self.enter()?;
+        let result = self.print_type_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn print_type_inner(&mut self) -> fmt::Result {
         let tag = parse!(self, next);
 
         match basic_type(tag) {
@@ -950,6 +1039,13 @@ impl<'a, 's> Printer<'a, 's> {
     /// To this end, this method will keep the `<...>` of an 'I' path
     /// open, by omitting the `>`, and return `Ok(true)` in that case.
     fn print_path_maybe_open_generics(&mut self) -> Result<bool, fmt::Error> {
+        self.enter()?;
+        let result = self.print_path_maybe_open_generics_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn print_path_maybe_open_generics_inner(&mut self) -> Result<bool, fmt::Error> {
         if self.eat(b'B') {
             self.backref_printer().print_path_maybe_open_generics()
         } else if self.eat(b'I') {
@@ -988,6 +1084,13 @@ impl<'a, 's> Printer<'a, 's> {
     }
 
     fn print_const(&mut self) -> fmt::Result {
+        self.enter()?;
+        let result = self.print_const_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn print_const_inner(&mut self) -> fmt::Result {
         if self.eat(b'B') {
             return self.backref_printer().print_const();
         }
@@ -995,13 +1098,10 @@ impl<'a, 's> Printer<'a, 's> {
         let ty_tag = parse!(self, next);
         let ty = match ty_tag {
             // Unsigned integer types.
-            b'h' | b't' | b'm' | b'y' | b'o' | b'j' => {
-                basic_type(ty_tag).unwrap()
-            }
+            b'h' | b't' | b'm' | b'y' | b'o' | b'j' => basic_type(ty_tag).unwrap(),
 
             _ => invalid!(self),
         };
-
 
         if self.eat(b'p') {
             self.out.write_str("_")?;
@@ -1020,8 +1120,8 @@ impl<'a, 's> Printer<'a, 's> {
 
         // Print anything that doesn't fit in `u64` verbatim.
         if hex.len() > 16 {
-            self.out.push_str("0x");
-            self.out.push_str(hex);
+            self.out.write_str("0x")?;
+            self.out.write_str(hex)?;
             return Ok(());
         }
 
@@ -1035,25 +1135,72 @@ impl<'a, 's> Printer<'a, 's> {
 
 #[cfg(test)]
 mod tests {
-    use crate::demangle::SymbolName;
+    use crate::demangle::{Kind, SymbolName};
+
+    fn assert_unmangled(symbol: &str) {
+        let result = SymbolName::demangle(symbol);
+        assert_eq!(result.complete, symbol);
+        assert_eq!(result.trimmed, symbol);
+        assert!(result.crate_name.is_none());
+        assert!(result.kind == Kind::Unknown);
+    }
+
+    fn assert_expansion_limited(symbol: &str) {
+        // Ensure this exercises expansion, rather than failing validation.
+        assert!(super::demangle(symbol).is_ok());
+        assert_unmangled(symbol);
+    }
+
+    #[test]
+    fn limits_recursive_backreferences() {
+        assert_expansion_limited("_RNvB_1a");
+        // The type backreference points to the enclosing tuple.
+        assert_expansion_limited("_RMC0TB2_E");
+    }
+
+    #[test]
+    fn limits_deep_paths_and_types_during_validation() {
+        let depth = 20_000;
+        let path = format!("_R{}C1a{}", "Nv".repeat(depth), "1b".repeat(depth));
+        assert_unmangled(&path);
+        let ty = format!("_RMC0{}u", "R".repeat(depth));
+        assert_unmangled(&ty);
+    }
+
+    #[test]
+    fn limits_exponential_backreference_expansion() {
+        let mut symbol = format!("_RMC0{}p", "T".repeat(30));
+        for offset in (3..33).rev() {
+            let digit = b"0123456789abcdefghijklmnopqrstuvwxyz"[offset] as char;
+            symbol.push_str(&format!("B{}_E", digit));
+        }
+        assert_expansion_limited(&symbol);
+    }
+
+    #[test]
+    fn limits_output_and_lifetime_binders() {
+        let name = "a".repeat(super::MAX_OUTPUT + 1);
+        assert_expansion_limited(&format!("_RC{}{}", name.len(), name));
+        // Large, valid base-62 binder counts must not cause enormous loops or
+        // overflow the lifetime depth. One exceeds u32, the other fits in it.
+        assert_expansion_limited("_RMC0FGZZZZZZZ_Eu");
+        assert_expansion_limited("_RMC0FGZZZZ_Eu");
+    }
 
     macro_rules! t_nohash {
-        ($a:expr, $b:expr) => ({
+        ($a:expr, $b:expr) => {{
             assert_eq!(SymbolName::demangle($a).trimmed, $b);
-        })
+        }};
     }
     macro_rules! t_nohash_type {
-        ($a:expr, $b:expr) => (
+        ($a:expr, $b:expr) => {
             t_nohash!(concat!("_RMC0", $a), concat!("<", $b, ">"))
-        )
+        };
     }
 
     #[test]
     fn demangle_crate_with_leading_digit() {
-        t_nohash!(
-            "_RNvC6_123foo3bar",
-            "123foo::bar"
-        );
+        t_nohash!("_RNvC6_123foo3bar", "123foo::bar");
     }
 
     #[test]

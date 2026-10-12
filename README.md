@@ -20,7 +20,7 @@ This crate is used mostly for sharing code between `cargo-bloat` and `auditable-
 
 `#[forbid(unsafe_code)]` ensures absence of code execution vulnerabilities. Absence of heap allocations ensures that it can't exhaust RAM. Static analysis via opt-in Clippy lints and fuzzing are used to ensure absence of panics.
 
-**Symbol extraction** is used by `cargo-bloat` only. It allocates unbounded amounts of memory on the heap and may panic given an untrusted input.
+**Symbol extraction** is used by `cargo-bloat` only. It has a shared 64MiB allocation budget for owned symbol names, output vector capacity, and temporary symbol tables. Exceeding the budget returns `ParseError::ResourceLimitExceeded`. Demangling also has recursion, work, and expansion limits.
 
 PRs with functionality required for your own tool are welcome as long as they adhere to the above goals and keep existing tools working. However, you should consider using the full-featured [`goblin`](https://crates.io/crates/goblin) crate instead.
 

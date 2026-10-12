@@ -8,7 +8,6 @@
 /// - `v0` demangler stores a crate name.
 /// - Updated to Rust 2018.
 /// - Ignore LLVM suffixes.
-
 mod legacy;
 mod v0;
 
@@ -33,6 +32,8 @@ pub struct SymbolName {
 }
 
 impl SymbolName {
+    /// Demangle a symbol, preserving the original name if v0 expansion exceeds
+    /// the recursion, work, or output limits.
     pub fn demangle(name: &str) -> Self {
         let d = demangle(name);
         match d.style {
@@ -41,8 +42,8 @@ impl SymbolName {
                 let mut trimmed = complete.clone();
 
                 // crate::mod::fn::h5fbe0f2f0b5c7342 -> crate::mod::fn
-                if let Some(pos) = trimmed.bytes().rposition(|b| b == b':') {
-                    trimmed.drain((pos - 1)..);
+                if let Some(pos) = trimmed.rfind("::") {
+                    trimmed.truncate(pos);
                 }
 
                 SymbolName {
@@ -53,20 +54,21 @@ impl SymbolName {
                 }
             }
             Some(DemangleStyle::V0(ref d)) => {
-                d.demangle()
+                d.demangle().unwrap_or_else(|_| Self::unmangled(name))
             }
-            None => {
-                SymbolName {
-                    complete: name.to_string(),
-                    trimmed: name.to_string(),
-                    crate_name: None, // Unknown.
-                    kind: Kind::Unknown,
-                }
-            }
+            None => Self::unmangled(name),
+        }
+    }
+
+    fn unmangled(name: &str) -> Self {
+        SymbolName {
+            complete: name.to_string(),
+            trimmed: name.to_string(),
+            crate_name: None,
+            kind: Kind::Unknown,
         }
     }
 }
-
 
 /// Representation of a demangled symbol name.
 pub struct Demangle<'a> {
@@ -100,11 +102,9 @@ pub fn demangle(mut s: &str) -> Demangle {
     let llvm = ".llvm.";
     if let Some(i) = s.find(llvm) {
         let candidate = &s[i + llvm.len()..];
-        let all_hex = candidate.chars().all(|c| {
-            match c {
-                'A' ..= 'F' | '0' ..= '9' | '@' => true,
-                _ => false,
-            }
+        let all_hex = candidate.chars().all(|c| match c {
+            'A'..='F' | '0'..='9' | '@' => true,
+            _ => false,
         });
 
         if all_hex {
@@ -152,9 +152,7 @@ fn is_symbol_like(s: &str) -> bool {
 // Copied from the documentation of `char::is_ascii_alphanumeric`
 fn is_ascii_alphanumeric(c: char) -> bool {
     match c {
-        '\u{0041}' ..= '\u{005A}' |
-        '\u{0061}' ..= '\u{007A}' |
-        '\u{0030}' ..= '\u{0039}' => true,
+        '\u{0041}'..='\u{005A}' | '\u{0061}'..='\u{007A}' | '\u{0030}'..='\u{0039}' => true,
         _ => false,
     }
 }
@@ -162,10 +160,32 @@ fn is_ascii_alphanumeric(c: char) -> bool {
 // Copied from the documentation of `char::is_ascii_punctuation`
 fn is_ascii_punctuation(c: char) -> bool {
     match c {
-        '\u{0021}' ..= '\u{002F}' |
-        '\u{003A}' ..= '\u{0040}' |
-        '\u{005B}' ..= '\u{0060}' |
-        '\u{007B}' ..= '\u{007E}' => true,
+        '\u{0021}'..='\u{002F}'
+        | '\u{003A}'..='\u{0040}'
+        | '\u{005B}'..='\u{0060}'
+        | '\u{007B}'..='\u{007E}' => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SymbolName;
+
+    #[test]
+    fn legacy_trimming_uses_a_complete_separator() {
+        for (symbol, complete, trimmed) in [
+            ("_ZN1:E", ":", ":"),
+            ("_ZN6$ue9$:E", "é:", "é:"),
+            (
+                "_ZN3foo17h5fbe0f2f0b5c7342E",
+                "foo::h5fbe0f2f0b5c7342",
+                "foo",
+            ),
+        ] {
+            let result = SymbolName::demangle(symbol);
+            assert_eq!(result.complete, complete);
+            assert_eq!(result.trimmed, trimmed);
+        }
     }
 }
