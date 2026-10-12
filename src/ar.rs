@@ -68,13 +68,13 @@ pub fn parse(data: &[u8]) -> Result<Vec<String>, ParseError> {
 fn parse_sysv(data: &[u8]) -> Result<Vec<String>, UnexpectedEof> {
     let mut symbols = Vec::new();
 
-    let count = {
-        let mut s = Stream::new(data, ByteOrder::BigEndian);
-        s.read::<u32>()? as usize
-    };
+    let mut s = Stream::new(data, ByteOrder::BigEndian);
+    let count = s.read::<u32>()? as usize;
 
-    // Skip offsets.
-    let mut i = 4 + 4 * count; // u32 + u32 * size
+    // Validate the offset table before looking for symbol names.
+    let offsets_len = count.checked_mul(4).ok_or(UnexpectedEof {})?;
+    s.read_bytes(offsets_len)?;
+    let mut i = s.offset();
 
     for _ in 0..count {
         if let Some(s) = parse_null_string(data, i) {
@@ -205,6 +205,40 @@ mod tests {
         contents.extend_from_slice(&8u32.to_le_bytes());
         contents.extend_from_slice(b"foo\0bar\0");
         assert_eq!(parse(&archive("#1/12", &contents)).unwrap(), ["foo", "bar"]);
+    }
+
+    #[test]
+    fn rejects_invalid_sysv_offset_tables() {
+        for count in [1u32, 0x3fff_ffff, 0x4000_0000, u32::MAX] {
+            let data = archive("/", &count.to_be_bytes());
+            assert!(matches!(parse(&data), Err(ParseError::UnexpectedEof)));
+        }
+        assert!(parse(&archive("/", &0u32.to_be_bytes()))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn handles_symbols_that_previously_crashed() {
+        for (symbol, expected) in [
+            ("_ZN1:E", ":"),
+            ("_ZN6$ue9$:E", "é:"),
+            ("_RNvB_1a", "_RNvB_1a"),
+        ] {
+            let mut strings = symbol.as_bytes().to_vec();
+            strings.push(0);
+
+            let mut sysv = 1u32.to_be_bytes().to_vec();
+            sysv.extend_from_slice(&0u32.to_be_bytes());
+            sysv.extend_from_slice(&strings);
+            assert_eq!(parse(&archive("/", &sysv)).unwrap(), [expected]);
+
+            let mut bsd = b"__.SYMDEF\0\0\0".to_vec();
+            bsd.extend_from_slice(&0u32.to_le_bytes());
+            bsd.extend_from_slice(&(strings.len() as u32).to_le_bytes());
+            bsd.extend_from_slice(&strings);
+            assert_eq!(parse(&archive("#1/12", &bsd)).unwrap(), [expected]);
+        }
     }
 
     #[test]

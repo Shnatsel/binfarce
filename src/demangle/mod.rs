@@ -32,6 +32,8 @@ pub struct SymbolName {
 }
 
 impl SymbolName {
+    /// Demangle a symbol, preserving the original name if v0 expansion exceeds
+    /// the recursion, work, or output limits.
     pub fn demangle(name: &str) -> Self {
         let d = demangle(name);
         match d.style {
@@ -40,8 +42,8 @@ impl SymbolName {
                 let mut trimmed = complete.clone();
 
                 // crate::mod::fn::h5fbe0f2f0b5c7342 -> crate::mod::fn
-                if let Some(pos) = trimmed.bytes().rposition(|b| b == b':') {
-                    trimmed.drain((pos - 1)..);
+                if let Some(pos) = trimmed.rfind("::") {
+                    trimmed.truncate(pos);
                 }
 
                 SymbolName {
@@ -51,15 +53,19 @@ impl SymbolName {
                     kind: Kind::Legacy,
                 }
             }
-            Some(DemangleStyle::V0(ref d)) => d.demangle(),
-            None => {
-                SymbolName {
-                    complete: name.to_string(),
-                    trimmed: name.to_string(),
-                    crate_name: None, // Unknown.
-                    kind: Kind::Unknown,
-                }
+            Some(DemangleStyle::V0(ref d)) => {
+                d.demangle().unwrap_or_else(|_| Self::unmangled(name))
             }
+            None => Self::unmangled(name),
+        }
+    }
+
+    fn unmangled(name: &str) -> Self {
+        SymbolName {
+            complete: name.to_string(),
+            trimmed: name.to_string(),
+            crate_name: None,
+            kind: Kind::Unknown,
         }
     }
 }
@@ -159,5 +165,27 @@ fn is_ascii_punctuation(c: char) -> bool {
         | '\u{005B}'..='\u{0060}'
         | '\u{007B}'..='\u{007E}' => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SymbolName;
+
+    #[test]
+    fn legacy_trimming_uses_a_complete_separator() {
+        for (symbol, complete, trimmed) in [
+            ("_ZN1:E", ":", ":"),
+            ("_ZN6$ue9$:E", "é:", "é:"),
+            (
+                "_ZN3foo17h5fbe0f2f0b5c7342E",
+                "foo::h5fbe0f2f0b5c7342",
+                "foo",
+            ),
+        ] {
+            let result = SymbolName::demangle(symbol);
+            assert_eq!(result.complete, complete);
+            assert_eq!(result.trimmed, trimmed);
+        }
     }
 }
